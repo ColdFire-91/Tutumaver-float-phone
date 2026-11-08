@@ -1,5 +1,5 @@
 "use client";
-import {AppNotificationBell,AppNotificationSetting} from "@/components/social/app-notifications";
+import {AppNotificationSetting} from "@/components/social/app-notifications";
 import { useGenerationFeedback } from "@/components/generation-feedback";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type TouchEvent, type UIEvent, type WheelEvent } from "react";
@@ -734,7 +734,7 @@ export function XiaohongshuApp({ onClose, onNotice: externalNotice, visible = tr
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedTab, setSelectedTab] = useState<XiaohongshuTabId>("home");
   const [homeFeedTab, setHomeFeedTab] = useState<XiaohongshuHomeFeedTab>("discover");
-  useEffect(()=>{const fn=(e:Event)=>{const n=(e as CustomEvent).detail;if(n.app!=='xiaohongshu')return;if(n.targetType==='dm'){setSelectedTab('messages');setSelectedDmThreadId(n.targetId);}else setSelectedNoteId(n.targetId);};window.addEventListener('social-notification-open',fn);return()=>window.removeEventListener('social-notification-open',fn);},[]);
+  useEffect(()=>{const fn=(e:Event)=>{const n=(e as CustomEvent).detail;if(n.app!=='xiaohongshu')return;if(n.targetType==='dm'){setMessagePanel(null);setSelectedTab('messages');setSelectedDmThreadId(n.targetId);}else if(n.targetType==='messages'){setSelectedNoteId(null);setSelectedTab('messages');setSelectedDmThreadId(null);if(n.targetId==='follow')handleOpenMessagePanel('follow');else setMessagePanel(null);}else setSelectedNoteId(n.targetId);};window.addEventListener('social-notification-open',fn);return()=>window.removeEventListener('social-notification-open',fn);},[]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -2496,7 +2496,7 @@ export function XiaohongshuApp({ onClose, onNotice: externalNotice, visible = tr
           >
             <ChevronLeft size={24} strokeWidth={2} />
           </button>
-          <AppNotificationBell app="xiaohongshu"/><div className="cp-xhs-header-stack">
+          <div className="cp-xhs-header-stack">
             {isMessageSubpage ? (
               <div className="cp-xhs-header-title is-active">{selectedMessagePanelTitle}</div>
             ) : selectedTab === "home" ? (
@@ -3529,3 +3529,4 @@ export function XiaohongshuApp({ onClose, onNotice: externalNotice, visible = tr
     </section>
   );
 }
+
