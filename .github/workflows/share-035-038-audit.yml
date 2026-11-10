@@ -21,3 +21,5 @@ jobs:
           echo "=== patch targets ==="
           grep -c '^patching file' /tmp/patch-check.log || true
           echo "=== diagnostic finished ==="
+
+# Recheck compatible full patch
