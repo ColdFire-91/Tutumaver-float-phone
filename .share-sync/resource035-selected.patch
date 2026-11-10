@@ -1,0 +1,724 @@
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -128,3 +128,8 @@
+ /* resource023: disclosure typography follows the surrounding app controls. */
+ .social-disclosure.social-disclosure>strong{display:block;font-family:inherit;font-size:calc(12px * var(--app-text-scale,1));font-weight:600;line-height:1.65;margin:0 0 5px}
+ .social-disclosure.social-disclosure>p{font-family:inherit;font-size:calc(11px * var(--app-text-scale,1));font-weight:400;line-height:1.7;margin:0 0 10px;color:inherit;opacity:.58}
++
++/* Compact screenshot saved-feedback toast: never increases action panel height. */
++.chat-screenshot-preview{position:relative;overflow:visible}
++.chat-screenshot-save-toast{position:absolute;z-index:12;bottom:81px;left:50%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:6px;max-width:90%;white-space:nowrap;padding:8px 12px;border-radius:999px;background:rgba(235,236,239,.96);color:#50535d;box-shadow:0 3px 14px #00000016;font-size:12px;line-height:1.4;pointer-events:none;animation:chat-saved-toast-in .17s ease-out both}
++@keyframes chat-saved-toast-in{from{opacity:0;transform:translate(-50%,5px)}to{opacity:1;transform:translate(-50%,0)}}
+--- a/components/chat/chat-screenshot-preview.tsx
++++ b/components/chat/chat-screenshot-preview.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+-import {useEffect,useState} from 'react';import {createPortal} from 'react-dom';import {X,Download,Share2,ImagePlus} from 'lucide-react';import {queueMomentScreenshot} from '@/lib/chat-screenshot';import {saveChatScreenshot,shareChatScreenshot} from '@/lib/chat-screenshot-actions';
++import {useEffect,useState} from 'react';import {createPortal} from 'react-dom';import {X,Download,Share2,ImagePlus,CheckCircle2} from 'lucide-react';import {queueMomentScreenshot} from '@/lib/chat-screenshot';import {saveChatScreenshot,shareChatScreenshot} from '@/lib/chat-screenshot-actions';
+ export function ChatScreenshotPreview({blob,onClose}:{blob:Blob;onClose:()=>void}){
+- const[url,setUrl]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>{const u=URL.createObjectURL(blob);setUrl(u);return()=>URL.revokeObjectURL(u);},[blob]);
+- async function action(kind:'save'|'share'){if(busy)return;setBusy(true);setStatus(kind==='save'?'正在保存…':'正在打开分享…');try{if(kind==='save')setStatus(await saveChatScreenshot(blob));else{await shareChatScreenshot(blob);setStatus('');}}catch(e){if(e instanceof Error&&(e.name==='AbortError'||/cancel/i.test(e.message)))setStatus('');else setStatus(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
+- return createPortal(<div className="chat-forward-mask" onClick={e=>{if(e.target===e.currentTarget&&!busy)onClose();}}><section className="chat-screenshot-preview" role="dialog" aria-label="截图预览"><header><strong>截图预览</strong><button disabled={busy} aria-label="关闭截图" onClick={onClose}><X size={22}/></button></header><div className="chat-screenshot-scroll">{url&&<img src={url} alt="聊天截图预览"/>}</div><footer><button disabled={busy} aria-label="保存到手机相册" title="保存到手机相册" onClick={()=>void action('save')}><Download size={22}/></button><button disabled={busy} aria-label="分享到朋友圈" title="分享到朋友圈" onClick={()=>{queueMomentScreenshot(blob);onClose();}}><ImagePlus size={22}/></button><button disabled={busy} aria-label="分享到其他应用" title="分享到其他应用" onClick={()=>void action('share')}><Share2 size={22}/></button></footer>{status&&<p role="status">{status}</p>}</section></div>,document.body);
++ const[url,setUrl]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>{if(!status)return;const timer=window.setTimeout(()=>setStatus(''),1600);return()=>window.clearTimeout(timer);},[status]);useEffect(()=>{const u=URL.createObjectURL(blob);setUrl(u);return()=>URL.revokeObjectURL(u);},[blob]);
++ async function action(kind:'save'|'share'){if(busy)return;setBusy(true);setStatus('');try{if(kind==='save')setStatus(await saveChatScreenshot(blob));else{await shareChatScreenshot(blob);setStatus('');}}catch(e){if(e instanceof Error&&(e.name==='AbortError'||/cancel/i.test(e.message)))setStatus('');else setStatus(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
++ return createPortal(<div className="chat-forward-mask" onClick={e=>{if(e.target===e.currentTarget&&!busy)onClose();}}><section className="chat-screenshot-preview" role="dialog" aria-label="截图预览"><header><strong>截图预览</strong><button disabled={busy} aria-label="关闭截图" onClick={onClose}><X size={22}/></button></header><div className="chat-screenshot-scroll">{url&&<img src={url} alt="聊天截图预览"/>}</div><footer><button disabled={busy} aria-label="保存到手机相册" title="保存到手机相册" onClick={()=>void action('save')}><Download size={22}/></button><button disabled={busy} aria-label="分享到朋友圈" title="分享到朋友圈" onClick={()=>{queueMomentScreenshot(blob);onClose();}}><ImagePlus size={22}/></button><button disabled={busy} aria-label="分享到其他应用" title="分享到其他应用" onClick={()=>void action('share')}><Share2 size={22}/></button></footer>{status&&<div className="chat-screenshot-save-toast" role="status"><CheckCircle2 size={14}/><span>{status}</span></div>}</section></div>,document.body);
+ }
+--- a/components/chat/live-photo.tsx
++++ b/components/chat/live-photo.tsx
+@@ -34,7 +34,7 @@
+         setUrl(u || '');
+         if (!u)
+             setError('本机视频文件不存在');
+-    } }); return () => { active = false; }; }, [msg.mediaData?.liveVideoId]); const cover = msg.mediaData?.liveCover; return <><div style={{width:200,maxWidth:'100%'}}><OnceMedia media={msg.mediaData?.socialMedia || {kind:'live',assetId:msg.mediaData?.liveVideoId||'',cover:cover||'',sheet:msg.mediaUrl||'',duration:msg.mediaData?.liveDuration||0,muted:msg.mediaData?.liveMuted}} mediaKey={msg.id} onPreview={()=>setOpen(true)}/></div>{open && createPortal(<div role="dialog" aria-modal="true" aria-label="实况预览" className="modal-overlay" style={{ zIndex: 10010, background: '#000e' }} onClick={() => { setOpen(false); setPlaying(false); }}><div style={{ width: '100%', maxWidth: 600, padding: 20, color: '#fff', textAlign: 'center' }} onClick={e => e.stopPropagation()}><button onClick={() => { setOpen(false); setPlaying(false); }} style={{ float: 'right', padding: 12 }}>关闭</button>{url ? <video ref={video} src={url} poster={cover} playsInline controls preload="metadata" muted={msg.mediaData?.liveMuted === true} style={{ width: '100%', maxHeight: '65dvh' }} onEnded={() => setPlaying(false)} onError={() => setError('浏览器无法播放这个视频')}/> : <p>{error || '读取视频中…'}</p>}<button className="ui-btn" onClick={() => { if (!video.current)
++    } }); return () => { active = false; }; }, [msg.mediaData?.liveVideoId]); const cover = msg.mediaData?.liveCover; return <><div className="chat-live-photo-card"><OnceMedia naturalRatio media={msg.mediaData?.socialMedia || {kind:'live',assetId:msg.mediaData?.liveVideoId||'',cover:cover||'',sheet:msg.mediaUrl||'',duration:msg.mediaData?.liveDuration||0,muted:msg.mediaData?.liveMuted}} mediaKey={msg.id} onPreview={()=>setOpen(true)}/></div>{open && createPortal(<div role="dialog" aria-modal="true" aria-label="实况预览" className="modal-overlay" style={{ zIndex: 10010, background: '#000e' }} onClick={() => { setOpen(false); setPlaying(false); }}><div style={{ width: '100%', maxWidth: 600, padding: 20, color: '#fff', textAlign: 'center' }} onClick={e => e.stopPropagation()}><button onClick={() => { setOpen(false); setPlaying(false); }} style={{ float: 'right', padding: 12 }}>关闭</button>{url ? <video ref={video} src={url} poster={cover} playsInline controls preload="metadata" muted={msg.mediaData?.liveMuted === true} style={{ width: '100%', maxHeight: '65dvh' }} onEnded={() => setPlaying(false)} onError={() => setError('浏览器无法播放这个视频')}/> : <p>{error || '读取视频中…'}</p>}<button className="ui-btn" onClick={() => { if (!video.current)
+     return; if (playing) {
+     video.current.pause();
+     setPlaying(false);
+--- a/components/chat/message-bubble.tsx
++++ b/components/chat/message-bubble.tsx
+@@ -3,11 +3,12 @@
+ import {YtbVideoSnapshotWindow} from "@/components/ytb/ytb-video-snapshot";
+ import { WeverseLiveInviteCard } from "./weverse-live-invite-card";
+ import { LivePhotoBubble } from "./live-photo";
++import { PHOTO_DECK_THRESHOLD, photoDeckLayer } from "@/lib/photo-deck-motion";
+ import {ReversePhoneRecord} from "./reverse-phone-overlay";
+ import { ForwardedChatBubble } from "./forwarded-chat-record";
+ import { chatContactDisplayName, chatPokeDisplayName } from "@/lib/communication-display-name";
+ 
+-import { useState, useEffect, useCallback, useRef, useMemo, memo, type ReactNode } from "react";
++import { useState, useEffect, useCallback, useRef, useMemo, memo, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+ import { findCustomStickerByName, resolveCustomStickerUrl } from "@/lib/custom-sticker-storage";
+ import { isMediaStoreRef, loadMediaObjectUrl } from "@/lib/media-cache-storage";
+ import { getChatImageFromIndexedDB } from "@/lib/chat-asset-storage";
+@@ -1404,26 +1405,50 @@
+     const [active, setActive] = useState(0);
+     const [expanded, setExpanded] = useState(false);
+     const [dragX, setDragX] = useState(0);
+-    const [direction, setDirection] = useState<1 | -1>(1);
+-    const [flipping, setFlipping] = useState<1 | -1 | null>(null);
+-    const startX = useRef<number | null>(null);
+-    const startY = useRef<number | null>(null);
+-    const flipTimer = useRef<number | null>(null);
++    const [dragging, setDragging] = useState(false);
++    const [settling, setSettling] = useState(false);
++    const pointer = useRef<{ id: number; x: number; y: number } | null>(null);
++    const settleTimer = useRef<number | null>(null);
+     const suppressClick = useRef(false);
+-    useEffect(() => () => { if (flipTimer.current !== null) window.clearTimeout(flipTimer.current); }, []);
+-    const current = Math.min(active, messages.length - 1);
+-    const canFlip = (step: 1 | -1) => current + step >= 0 && current + step < messages.length;
+-    const flip = (step: 1 | -1) => {
+-        if (flipping || !canFlip(step)) { setDragX(0); return; }
+-        setDirection(step);
+-        setFlipping(step);
+-        setDragX(step === 1 ? -220 : 220);
+-        flipTimer.current = window.setTimeout(() => {
+-            setActive(index => Math.max(0, Math.min(messages.length - 1, index + step)));
+-            setDragX(0);
+-            setFlipping(null);
+-            flipTimer.current = null;
+-        }, 230);
++    const mine = messages[0]?.role === 'user';
++    useEffect(() => () => { if (settleTimer.current !== null) window.clearTimeout(settleTimer.current); }, []);
++    const current = Math.max(0, Math.min(active, messages.length - 1));
++    const canFlip = (step: number) => current + step >= 0 && current + step < messages.length;
++    const finish = (step: -1 | 1) => {
++        if (settling || !canFlip(step)) { setDragX(0); return; }
++        setSettling(true);
++        setActive(index => Math.max(0, Math.min(messages.length - 1, index + step)));
++        setDragX(0);
++        if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
++        settleTimer.current = window.setTimeout(() => { setSettling(false); settleTimer.current = null; }, 410);
++    };
++    const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
++        if (settling || pointer.current) return;
++        pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
++        suppressClick.current = false;
++        setDragging(true);
++        event.currentTarget.setPointerCapture(event.pointerId);
++    };
++    const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
++        const start = pointer.current;
++        if (!start || start.id !== event.pointerId) return;
++        const dx = Math.max(-160, Math.min(160, event.clientX - start.x));
++        const dy = Math.abs(event.clientY - start.y);
++        if (dy > Math.abs(dx)) { setDragX(0); return; }
++        setDragX(!canFlip(dx < 0 ? 1 : -1) ? dx * .28 : dx);
++    };
++    const onRelease = (event: ReactPointerEvent<HTMLDivElement>) => {
++        const start = pointer.current;
++        if (!start || start.id !== event.pointerId) return;
++        pointer.current = null;
++        setDragging(false);
++        const dy = Math.abs(event.clientY - start.y);
++        const dx = dragX;
++        if (Math.abs(dx) > 8 || dy > 8) suppressClick.current = true;
++        if (dy > Math.abs(dx) && dy > 8) { setDragX(0); return; }
++        if (dx <= -PHOTO_DECK_THRESHOLD && canFlip(1)) finish(1);
++        else if (dx >= PHOTO_DECK_THRESHOLD && canFlip(-1)) finish(-1);
++        else setDragX(0);
+     };
+     if (expanded) return <div className="chat-photo-deck-expanded" onClick={event => event.stopPropagation()}>
+         <div className="chat-photo-deck-grid">{messages.map(msg => <div className="chat-photo-deck-item" key={msg.id}>
+@@ -1431,51 +1456,17 @@
+         </div>)}</div>
+         <button type="button" className="chat-photo-deck-toggle" onClick={() => setExpanded(false)}>收起照片</button>
+     </div>;
+-    return <div className="chat-photo-deck" role="group" aria-label={`${messages.length} 张照片，左右滑动翻页`} onClick={event => event.stopPropagation()}>
+-        <div className="chat-photo-deck-stack" style={{ width: Math.min(204, 184 + messages.length * 6) }}>
+-            {messages.map((_, depth) => {
+-                // Keep every remaining card visible, even at the end of the stack.
+-                const index = (current + depth * direction + messages.length * (depth + 1)) % messages.length;
+-                const front = depth === 0;
+-                const x = front ? dragX : flipping && depth === 1 ? 0 : depth * 6;
+-                const y = front ? 0 : flipping && depth === 1 ? 0 : depth * 5;
+-                const angle = front ? dragX / 15 : flipping && depth === 1 ? 0 : depth * 3;
+-                return <div key={messages[index].id} className="chat-photo-deck-card"
+-                    aria-hidden={!front} style={{ zIndex: messages.length - depth, transform: `translate(${x}px,${y}px) rotate(${angle}deg)`, transition: front && startX.current !== null && !flipping ? "none" : undefined, pointerEvents: front ? "auto" : "none" }}
+-                    onClickCapture={front ? event => { if (suppressClick.current) { event.stopPropagation(); event.preventDefault(); suppressClick.current = false; } } : undefined}
+-                    onPointerDown={front ? event => {
+-                        if (flipping) return;
+-                        startX.current = event.clientX; startY.current = event.clientY; suppressClick.current = false;
+-                        // Leave text-only cards and the last picture's click on the inner preview.
+-                        if (messages[index].mediaUrl && canFlip(1)) event.currentTarget.setPointerCapture(event.pointerId);
+-                    } : undefined}
+-                    onPointerMove={front ? event => {
+-                        if (startX.current === null || flipping) return;
+-                        const dx = Math.max(-150, Math.min(150, event.clientX - startX.current));
+-                        const dy = Math.abs(event.clientY - (startY.current ?? event.clientY));
+-                        if (dy > Math.abs(dx)) { setDragX(0); return; }
+-                        const step = dx < 0 ? 1 : -1;
+-                        setDragX(canFlip(step) ? dx : 0);
+-                        if (Math.abs(dx) > 8 && canFlip(step)) setDirection(step);
+-                    } : undefined}
+-                    onPointerUp={front ? event => {
+-                        if (startX.current === null) return;
+-                        const dx = event.clientX - startX.current;
+-                        const dy = Math.abs(event.clientY - (startY.current ?? event.clientY));
+-                        startX.current = null; startY.current = null;
+-                        if (Math.abs(dx) > 8 || dy > 8) suppressClick.current = true;
+-                        if (dy > 8 && dy > Math.abs(dx)) { setDragX(0); return; }
+-                        if (Math.abs(dx) > 28) { suppressClick.current = true; flip(dx < 0 ? 1 : -1); }
+-                        else {
+-                            setDragX(0);
+-                            if (Math.abs(dx) < 8 && dy < 8 && messages[index].mediaUrl && canFlip(1) && event.currentTarget.hasPointerCapture(event.pointerId)) {
+-                                suppressClick.current = true;
+-                                flip(1);
+-                            }
+-                        }
+-                    } : undefined}
+-                    onPointerCancel={front ? () => { startX.current = null; startY.current = null; setDragX(0); } : undefined}>
+-                    <ImageBubble msg={messages[index]} onUpdate={onUpdate} characterId={characterId} onDeckTap={front && canFlip(1) ? () => flip(1) : undefined} />
++    return <div className={`chat-photo-deck ${mine ? 'chat-photo-deck--mine' : ''}`} role="group" aria-label={`${messages.length} 张照片，左右滑动翻页`} onClick={event => event.stopPropagation()}>
++        <div className="chat-photo-deck-stack" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onRelease}
++            onPointerCancel={event => { if (pointer.current?.id === event.pointerId) { pointer.current = null; setDragging(false); setDragX(0); } }}
++            onClickCapture={event => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}>
++            {messages.map((message, index) => {
++                const front = index === current;
++                const motion = photoDeckLayer(index, current, messages.length, dragX);
++                return <div key={message.id} className="chat-photo-deck-card" aria-hidden={!front}
++                    style={{ ...motion, transition: dragging ? 'none' : undefined }}>
++                    <ImageBubble msg={message} onUpdate={onUpdate} characterId={characterId}
++                        onDeckTap={front && canFlip(1) ? () => finish(1) : undefined} />
+                 </div>;
+             })}
+         </div>
+@@ -1608,14 +1599,14 @@
+         return (
+             <>
+                 <div
+-                    className="chat-photo-card chat-photo-card--image rounded-none"
++                    className="chat-photo-card chat-photo-card--image"
+                     style={{ cursor: "pointer" }}
+                     onClick={e => { e.stopPropagation(); if (onDeckTap) onDeckTap(); else setShowPreview(true); }}
+                 >
+                     <img
+                         src={resolvedUrl}
+                         alt={label}
+-                        className="chat-photo-card-image block max-w-[240px] max-h-[320px] w-auto h-auto"
++                        className="chat-photo-card-image block w-auto h-auto"
+                     />
+                 </div>
+                 {previewAndDialog}
+--- a/components/lysn/lysn-app.module.css
++++ b/components/lysn/lysn-app.module.css
+@@ -413,3 +413,20 @@
+ .historyCard{display:flex;flex-direction:column;align-items:center;gap:6px;align-self:center;width:min(78%,240px);min-height:114px;margin:5px auto 14px;padding:19px 14px;border:1px solid #e8dcef;border-radius:17px;background:#f6f0ff;color:#473256;text-align:center;box-shadow:0 5px 16px #4b21630c}
+ .historyCard>span{font-size:calc(11px*var(--app-text-scale,1));color:#925bc5;letter-spacing:1px}.historyCard>b{font-size:calc(15px*var(--app-text-scale,1))}.historyCard>small{font-size:calc(10px*var(--app-text-scale,1));color:#8e7b9e}
+ .timelineNow{align-self:center;margin:10px auto 13px;color:#9b8da9;font-size:calc(11px*var(--app-text-scale,1));text-align:center}
++
++/* Resource 035: same approved tuck/shuffle motion as Chat, Lysn keeps lavender expand chip. */
++.stackWrap{gap:10px;max-width:100%;}
++.stackMine{flex-direction:row-reverse;}
++.photoDeck{flex:0 0 204px;width:204px;height:255px;touch-action:pan-y;}
++.photoDeck .photoCard{top:0;left:12px;width:180px;height:240px;overflow:hidden;border-radius:15px;outline:1px solid #43304f18;outline-offset:-1px;
++ box-shadow:0 5px 13px #33284420;transition:transform .41s cubic-bezier(.2,.82,.25,1),opacity .26s ease;will-change:transform;transform-origin:50% 50%;}
++.photoViewAll{background:#ede6f7;color:#795b95;border-radius:999px;white-space:nowrap;}
++/* Less distracting Lysn message metadata; keep the existing purple read receipt. */
++.messageMeta{font-size:calc(9px*var(--app-text-scale,1));}
++.mine .messageMeta time{font-size:calc(9px*var(--app-text-scale,1));}
++.mine .messageMeta .readReceipt{width:12px;height:12px;}
++.mine .messageMeta .readReceipt svg{width:8px;height:8px;}
++
++/* Single photo presentation matches Chat: no cropping, shared size cap and corners. */
++.app .photoBubbleOnly .photoButton{border-radius:15px;max-width:min(190px,62vw);overflow:hidden;}
++.app .photoBubbleOnly .photo{display:block;width:auto;max-width:100%;max-height:270px;height:auto;object-fit:contain;border-radius:15px;}
+--- a/components/lysn/lysn-app.tsx
++++ b/components/lysn/lysn-app.tsx
+@@ -3,7 +3,7 @@
+ import { AudioSourcePicker } from "@/components/audio-source-picker";
+ import { DEFAULT_LYSN_SOUND } from "@/lib/default-notification-sounds";
+ import {lysnCalendarContext} from "@/lib/lysn-calendar-context";
+-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
++import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+ import {
+   ArrowUp,
+   Camera,
+@@ -62,6 +62,7 @@
+   type LysnUserProfile,
+ } from "@/lib/lysn-storage";
+ import styles from "./lysn-app.module.css";
++import { PHOTO_DECK_THRESHOLD, photoDeckLayer } from "@/lib/photo-deck-motion";
+ 
+ type Tab = "friends" | "chats" | "more";
+ type Route = "artist" | "chat" | "details" | "calendar" | "ourBox" | "media" | "stickers" | "myStickers" | "artistEdit" | "myProfile" | "myEdit" | "settings" | null;
+@@ -685,9 +686,9 @@
+   const messageItems: Array<LysnMessage | LysnMessage[]> = [];
+   for (const message of messages) {
+     const previous = messageItems.at(-1);
+-    if (!chatSearchOpen && room.foldPhotos !== false && message.sender === "artist" && message.kind === "photo" && (message.imageUrl || message.photoDescription) && previous) {
++    if (!chatSearchOpen && room.foldPhotos !== false && message.kind === "photo" && (message.imageUrl || message.photoDescription) && previous) {
+       const last = Array.isArray(previous) ? previous.at(-1) : previous;
+-      if (last?.sender === "artist" && last.kind === "photo" && (last.imageUrl || last.photoDescription) && !last.quote && !message.quote && (last.photoCaptionDetached || !last.original || /^(?:照片|图片|photo|picture|사진)$/i.test(last.original)) && (message.photoCaptionDetached || !message.original || /^(?:照片|图片|photo|picture|사진)$/i.test(message.original)) && message.createdAt - last.createdAt < 120000) {
++      if (last?.sender === message.sender && last.kind === "photo" && (last.imageUrl || last.photoDescription) && !last.quote && !message.quote && (last.photoCaptionDetached || !last.original || /^(?:照片|图片|photo|picture|사진)$/i.test(last.original)) && (message.photoCaptionDetached || !message.original || /^(?:照片|图片|photo|picture|사진)$/i.test(message.original)) && message.createdAt - last.createdAt < 120000) {
+         if (Array.isArray(previous)) previous.push(message);
+         else messageItems[messageItems.length - 1] = [previous, message];
+         continue;
+@@ -701,10 +702,10 @@
+   const renderMessage = (item: LysnMessage | LysnMessage[]) => {
+     if (Array.isArray(item)) {
+       return (
+-        <div key={item[0].id} id={`lysn-msg-${item[0].id}`} className={styles.message}>
+-          <Avatar src={avatar} name={roomName} className={`${styles.messageAvatar} ${styles.artistAvatarRing}`}/>
++        <div key={item[0].id} id={`lysn-msg-${item[0].id}`} className={`${styles.message} ${item[0].sender === "fan" ? styles.mine : ""}`}>
++          {item[0].sender === "artist" && <Avatar src={avatar} name={roomName} className={`${styles.messageAvatar} ${styles.artistAvatarRing}`}/>}
+           <div className={styles.messageBody}>
+-            <div className={styles.senderLine}><ArtistBadge/><b>{displayName}</b></div>
++            {item[0].sender === "artist" && <div className={styles.senderLine}><ArtistBadge/><b>{displayName}</b></div>}
+             <PhotoStack rows={item} onOpen={setViewerUrl} onEdit={openEditMessage}/>
+           </div>
+           <div className={styles.messageMeta}><time>{formatClock(item.at(-1)!.createdAt)}</time></div>
+@@ -842,48 +843,101 @@
+   const [active, setActive] = useState(0);
+   const [expanded, setExpanded] = useState(false);
+   const [dragX, setDragX] = useState(0);
+-  const [direction, setDirection] = useState<1 | -1>(1);
+-  const [flipping, setFlipping] = useState<1 | -1 | null>(null);
+-  const startX = useRef<number | null>(null);
+-  const startY = useRef<number | null>(null);
+-  const flipTimer = useRef<number | null>(null);
++  const [dragging, setDragging] = useState(false);
++  const [settling, setSettling] = useState(false);
++  const pointer = useRef<{ id: number; x: number; y: number } | null>(null);
++  const settleTimer = useRef<number | null>(null);
+   const holdTimer = useRef<number | null>(null);
+   const longPressed = useRef(false);
+-  useEffect(() => () => { if (flipTimer.current !== null) window.clearTimeout(flipTimer.current); if (holdTimer.current !== null) window.clearTimeout(holdTimer.current); }, []);
+-  const canFlip = (nextDirection: 1 | -1) => active + nextDirection >= 0 && active + nextDirection < rows.length;
+-  const flip = (nextDirection: 1 | -1) => {
+-    if (flipping || !canFlip(nextDirection)) { setDragX(0); return; }
+-    setDirection(nextDirection);
+-    setFlipping(nextDirection);
+-    setDragX(nextDirection === 1 ? -150 : 150);
+-    flipTimer.current = window.setTimeout(() => {
+-      setActive(index => index + nextDirection);
++  const suppressClick = useRef(false);
++  const mine = rows[0]?.sender === 'fan';
++  useEffect(() => () => {
++    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
++    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
++  }, []);
++  const current = Math.max(0, Math.min(active, rows.length - 1));
++  const canFlip = (step: number) => current + step >= 0 && current + step < rows.length;
++  const flip = (step: -1 | 1) => {
++    if (settling || !canFlip(step)) { setDragX(0); return; }
++    setSettling(true);
++    setActive(index => Math.max(0, Math.min(rows.length - 1, index + step)));
++    setDragX(0);
++    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
++    settleTimer.current = window.setTimeout(() => { setSettling(false); settleTimer.current = null; }, 410);
++  };
++  const clearHold = () => { if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } };
++  const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
++    if (settling || pointer.current) return;
++    pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
++    longPressed.current = false;
++    suppressClick.current = false;
++    setDragging(true);
++    clearHold();
++    const selected = rows[current];
++    holdTimer.current = window.setTimeout(() => {
++      longPressed.current = true;
++      pointer.current = null;
++      setDragging(false);
++      onEdit(selected);
++      holdTimer.current = null;
++    }, 520);
++    event.currentTarget.setPointerCapture(event.pointerId);
++  };
++  const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
++    const start = pointer.current;
++    if (!start || start.id !== event.pointerId) return;
++    const dx = Math.max(-160, Math.min(160, event.clientX - start.x));
++    const dy = Math.abs(event.clientY - start.y);
++    if (Math.abs(dx) > 8 || dy > 8) clearHold();
++    if (dy > Math.abs(dx)) { setDragX(0); return; }
++    setDragX(canFlip(dx < 0 ? 1 : -1) ? dx : dx * .28);
++  };
++  const onRelease = (event: ReactPointerEvent<HTMLDivElement>) => {
++    clearHold();
++    if (longPressed.current) { longPressed.current = false; suppressClick.current = true; return; }
++    const start = pointer.current;
++    if (!start || start.id !== event.pointerId) return;
++    pointer.current = null;
++    setDragging(false);
++    const dx = dragX;
++    const dy = Math.abs(event.clientY - start.y);
++    if (Math.abs(dx) > 8 || dy > 8) suppressClick.current = true;
++    if (dy > Math.abs(dx) && dy > 8) { setDragX(0); return; }
++    if (dx <= -PHOTO_DECK_THRESHOLD && canFlip(1)) flip(1);
++    else if (dx >= PHOTO_DECK_THRESHOLD && canFlip(-1)) flip(-1);
++    else {
+       setDragX(0);
+-      setFlipping(null);
+-      flipTimer.current = null;
+-    }, 230);
+-  };
+-  if (expanded) return <div className={styles.photoExpanded}><div className={styles.photoExpandedGrid}>{rows.map(row => <button type="button" key={row.id} onClick={() => row.imageUrl ? onOpen(row.imageUrl) : onEdit(row)} onContextMenu={e => { e.preventDefault(); onEdit(row); }} aria-label={`查看照片 ${rows.indexOf(row) + 1}`}>{row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}</button>)}</div><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(false)}>收起照片</button></div>;
+-  return <div className={styles.stackWrap}><div className={styles.photoDeck} role="group" aria-label={`${rows.length} 张照片，左右滑动翻页`}>
+-    {rows.map((_, depth) => {
+-      const index = active + depth * direction;
+-      if (index < 0 || index >= rows.length) return null;
+-      const row = rows[index];
+-      const front = depth === 0;
+-      const moveX = front ? dragX : flipping && depth === 1 ? 0 : depth * 6;
+-      const moveY = front ? 0 : flipping && depth === 1 ? 0 : depth * 5;
+-      const angle = front ? dragX / 15 : flipping && depth === 1 ? 0 : depth * 3;
+-      return <button type="button" key={row.id} tabIndex={front ? 0 : -1} aria-hidden={!front} aria-label={`第 ${index + 1} 张，共 ${rows.length} 张；轻点或滑动翻页`} className={styles.photoCard} style={{ zIndex: rows.length - depth, transform: `translate(${moveX}px,${moveY}px) rotate(${angle}deg)`, transition: front && startX.current !== null && !flipping ? "none" : undefined, pointerEvents: front ? "auto" : "none" }}
+-        onDragStart={e => e.preventDefault()}
+-        onContextMenu={front ? e => { e.preventDefault(); onEdit(row); } : undefined}
+-        onPointerDown={front ? e => { if (flipping) return; startX.current = e.clientX; startY.current = e.clientY; longPressed.current = false; if (holdTimer.current !== null) window.clearTimeout(holdTimer.current); holdTimer.current = window.setTimeout(() => { longPressed.current = true; startX.current = null; onEdit(row); holdTimer.current = null; }, 520); e.currentTarget.setPointerCapture(e.pointerId); } : undefined}
+-        onPointerMove={front ? e => { if (startX.current === null || flipping) return; const delta = Math.max(-135, Math.min(135, e.clientX - startX.current)); const vertical = Math.abs(e.clientY - (startY.current ?? e.clientY)); if ((Math.abs(delta) > 8 || vertical > 8) && holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } if (vertical > Math.abs(delta)) { setDragX(0); return; } const nextDirection = delta < 0 ? 1 : -1; setDragX(canFlip(nextDirection) ? delta : 0); if (Math.abs(delta) > 8 && canFlip(nextDirection)) setDirection(nextDirection); } : undefined}
+-        onPointerUp={front ? e => { if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } if (longPressed.current) { longPressed.current = false; return; } if (startX.current === null) return; const delta = e.clientX - startX.current; const vertical = Math.abs(e.clientY - (startY.current ?? e.clientY)); startX.current = null; startY.current = null; if (vertical > 8 && vertical > Math.abs(delta)) { setDragX(0); return; } if (Math.abs(delta) > 28) flip(delta < 0 ? 1 : -1); else { setDragX(0); if (Math.abs(delta) < 8) row.imageUrl ? flip(1) : onEdit(row); } } : undefined}
+-        onPointerCancel={front ? () => { if (holdTimer.current !== null) window.clearTimeout(holdTimer.current); holdTimer.current = null; startX.current = null; startY.current = null; setDragX(0); } : undefined}
+-        onClick={front ? e => { if (e.detail === 0) flip(1); } : undefined}
+-        onKeyDown={front ? e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); flip(e.key === "ArrowLeft" ? -1 : 1); } } : undefined}>
+-        {row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}
+-      </button>;
+-    })}
+-  </div><div className={styles.photoDeckControls}><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(true)}>展开全部 {rows.length}</button></div></div>;
+-}
++      if (Math.abs(dx) < 8 && dy < 8) {
++        const selected = rows[current];
++        if (!selected.imageUrl) onEdit(selected);
++        else if (canFlip(1)) flip(1);
++        else onOpen(selected.imageUrl);
++      }
++    }
++  };
++  if (expanded) return <div className={styles.photoExpanded}>
++    <div className={styles.photoExpandedGrid}>{rows.map((row, index) => <button type="button" key={row.id}
++      onClick={() => row.imageUrl ? onOpen(row.imageUrl) : onEdit(row)}
++      onContextMenu={e => { e.preventDefault(); onEdit(row); }} aria-label={`查看照片 ${index + 1}`}>
++      {row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}
++    </button>)}</div><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(false)}>收起照片</button>
++  </div>;
++  return <div className={`${styles.stackWrap} ${mine ? styles.stackMine : ''}`}>
++    <div className={styles.photoDeck} role="group" tabIndex={0} aria-label={`${rows.length} 张照片，左右滑动翻页`}
++      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onRelease}
++      onPointerCancel={event => { if (pointer.current?.id === event.pointerId) { clearHold(); pointer.current = null; setDragging(false); setDragX(0); } }}
++      onClickCapture={event => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
++      onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); flip(event.key === 'ArrowLeft' ? -1 : 1); } }}>
++      {rows.map((row, index) => {
++        const front = current === index;
++        const motion = photoDeckLayer(index, current, rows.length, dragX);
++        return <div key={row.id} aria-hidden={!front} className={styles.photoCard}
++          style={{ ...motion, transition: dragging ? 'none' : undefined }}
++          onContextMenu={front ? event => { event.preventDefault(); onEdit(row); } : undefined}>
++          {row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}
++        </div>;
++      })}
++    </div>
++    <div className={styles.photoDeckControls}><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(true)}>展开全部 {rows.length}</button></div>
++  </div>;
++}
+--- a/components/phone/phone-app.module.css
++++ b/components/phone/phone-app.module.css
+@@ -61,3 +61,11 @@
+ /* Build9: independent Phone call layout. */
+ .callBackdrop{background-image:none!important;background:#29292c;filter:none;transform:none;inset:0}.callTint{background:linear-gradient(160deg,#ffffff00,#ffffff04 65%,#0002)}.callTop{padding-top:calc(var(--phone-safe-top,48px) + 30px);flex:none}.callTop .callStatus{font-size:calc(25px * var(--app-text-scale,1));color:#aaa;font-weight:550;line-height:1.4;margin:0 0 8px}.callName{font-size:calc(30px * var(--app-text-scale,1));font-weight:500}.callSubtitle{font-size:12px;color:#aaa;margin-top:9px}.callConversation{position:relative;z-index:1;width:100%;flex:1;min-height:0;display:flex;flex-direction:column;padding:18px 20px 10px}.transcript{flex:1;max-height:none;min-height:0;mask-image:none;gap:9px;padding:0;overflow:auto}.line{border-radius:16px 16px 16px 4px;background:#ffffff15;padding:12px 13px;font-size:15px;max-width:90%}.userLine{border-radius:16px 16px 4px 16px;background:#ffffff24}.charLine{background:#ffffff16}.translation{border-top:1px solid #ffffff27;padding-top:7px;margin-top:7px;font-size:12px;line-height:1.6;color:#ddd;opacity:.75}.inputRow{margin-top:12px;flex:none;gap:5px;height:46px}.callControls{position:relative;bottom:auto;left:auto;right:auto;flex:none;width:100%;padding:8px 26px max(27px,env(safe-area-inset-bottom));gap:45px}.sixControls{display:grid;grid-template-columns:repeat(3,1fr);gap:20px 25px;width:100%;max-width:400px;margin:auto}.sixControls>div{display:flex;flex-direction:column;align-items:center;gap:8px}.sixControls span{font-size:12px}.roundBtn{width:65px;height:65px;background:#ffffff19;flex:none;cursor:pointer}.roundBtn[data-active="1"]{background:#fff;color:#29292d}.roundBtn:disabled{opacity:.42;cursor:default}.decline{background:#ff252b}.callWait{font-size:12px;color:#bbb;padding:10px}.callScreen{padding-bottom:0}.sixControls .roundBtn svg{width:25px;height:25px}
+ @media(max-height:600px){.callTop{padding-top:35px}.sixControls{gap:8px 20px}.roundBtn{width:48px;height:48px}.callControls{padding-bottom:12px}.callConversation{padding-top:12px}}
++
++/* Telephone settings use the same compact toggle typography as SMS. */
++.modalCard h2{font-size:calc(19px * var(--app-text-scale,1));font-weight:650;letter-spacing:-.025em}
++.modalCard .settingsToggleRow{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;min-height:48px!important;padding:8px 0;font-size:calc(14px * var(--app-text-scale,1));font-weight:500}
++.modalCard input.settingsSwitch[type=checkbox]{appearance:none;-webkit-appearance:none;flex:none;width:46px!important;height:27px!important;margin:0!important;padding:0!important;border:0!important;border-radius:100px!important;background:#d9dce2!important;position:relative;transition:background .18s ease}
++.modalCard input.settingsSwitch[type=checkbox]::after{content:"";position:absolute;left:2px;top:2px;width:23px;height:23px;background:#fff;border-radius:50%;box-shadow:0 1px 3px #0002;transition:transform .18s ease}
++.modalCard input.settingsSwitch[type=checkbox]:checked{background:#34c759!important}
++.modalCard input.settingsSwitch[type=checkbox]:checked::after{transform:translateX(19px)}
+--- a/components/phone/phone-app.tsx
++++ b/components/phone/phone-app.tsx
+@@ -310,7 +310,7 @@
+       {tab === "keypad" && <section className={styles.keypadPage}><div className={styles.dialDisplay}>{dial || " "}</div><button className={styles.addNumber}>添加号码</button>{dialCandidates.length > 0 && !matchDial && <div className={styles.dialSuggestions}>{dialCandidates.map(c=><button key={c.id} onClick={()=>setDial(getCharacterPhoneNumber(c.id))}><span className={styles.suggestionAvatar}><img src={DEFAULT_CONTACT_AVATAR} alt=""/></span><span><strong>{aliasFor(c.id)}</strong><small>{getCharacterPhoneNumber(c.id)}</small></span></button>)}</div>}{matchDial && <div className={styles.dialMatch}>{aliasFor(matchDial.id)} · {getCharacterPhoneNumber(matchDial.id)}</div>}<div className={styles.keypad}>{[["1",""],["2","ABC"],["3","DEF"],["4","GHI"],["5","JKL"],["6","MNO"],["7","PQRS"],["8","TUV"],["9","WXYZ"],["*",""],["0","+"],["#",""]].map(([n,l])=><button key={n} onClick={()=>setDial(v=>v+n)}><strong>{n}</strong><span>{l}</span></button>)}</div><div className={styles.keypadBottom}><span/><button className={styles.callKey} disabled={!matchDial} onClick={()=>matchDial&&startOutgoing(matchDial.id)}><Phone/></button><button className={styles.deleteKey} onClick={()=>setDial(v=>v.slice(0,-1))}><Delete/></button></div></section>}
+     </main>
+     <nav className={styles.tabs}><button className={tab==="favorites"?styles.selected:undefined} onClick={()=>setTab("favorites")}><Star/><span>个人收藏</span></button><button className={tab==="recents"?styles.selected:undefined} onClick={()=>setTab("recents")}><Clock3/><span>最近通话</span></button><button className={tab==="contacts"?styles.selected:undefined} onClick={()=>setTab("contacts")}><ContactRound/><span>通讯录</span></button><button className={tab==="keypad"?styles.selected:undefined} onClick={()=>setTab("keypad")}><Keyboard/><span>拨号键盘</span></button></nav>
+-    {showPhoneSettings && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="电话设置"><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setShowPhoneSettings(false)} aria-label="关闭"><X/></button><h2>电话设置</h2><CommunicationSettings channel="phone"/><label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}><span>来电声音</span><input type="checkbox" role="switch" aria-label="来电声音" checked={ringtoneEnabled} onChange={e=>setRingtoneEnabled(e.target.checked)}/></label><AudioSourcePicker defaultValue={DEFAULT_PHONE_RINGTONE} label="来电铃声" value={ringtoneDraft} onChange={setRingtoneDraft} onNotice={onNotice} defaultHint="保存后生效；恢复默认后使用电话的内置来电铃声。"/><button className={styles.saveBtn} onClick={()=>{const url=ringtoneDraft.trim();if(url && !isRingtoneSource(url)){onNotice?.("请填写 http 或 https 音频地址");return;}const next=loadPhoneState();next.ringtoneUrl=url;next.ringtoneEnabled=ringtoneEnabled;savePhoneState(next);setShowPhoneSettings(false)}}>保存</button></div></div>}
++    {showPhoneSettings && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="电话设置"><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setShowPhoneSettings(false)} aria-label="关闭"><X/></button><h2>电话设置</h2><CommunicationSettings channel="phone"/><label className={styles.settingsToggleRow}><span>来电声音</span><input className={styles.settingsSwitch} type="checkbox" role="switch" aria-label="来电声音" checked={ringtoneEnabled} onChange={e=>setRingtoneEnabled(e.target.checked)}/></label><AudioSourcePicker defaultValue={DEFAULT_PHONE_RINGTONE} label="来电铃声" value={ringtoneDraft} onChange={setRingtoneDraft} onNotice={onNotice} defaultHint="保存后生效；恢复默认后使用电话的内置来电铃声。"/><button className={styles.saveBtn} onClick={()=>{const url=ringtoneDraft.trim();if(url && !isRingtoneSource(url)){onNotice?.("请填写 http 或 https 音频地址");return;}const next=loadPhoneState();next.ringtoneUrl=url;next.ringtoneEnabled=ringtoneEnabled;savePhoneState(next);setShowPhoneSettings(false)}}>保存</button></div></div>}
+     {editingMe && <div className={styles.modal}><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setEditingMe(false)}><X/></button><h2>我的名片</h2><label>电话号码<input value={myNumberDraft} onChange={e=>setMyNumberDraft(e.target.value)} placeholder="例如 +86 138 0000 0000"/></label><p className={styles.modalHint}>这里与 SMS 的真实号码共用同一份数据，保存后两边同步。</p><button className={styles.saveBtn} onClick={()=>{setUserPhoneNumber(myNumberDraft);setEditingMe(false)}}>保存</button></div></div>}
+     {editingCharacterId && <div className={styles.modal}><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setEditingCharacterId(null)}><X/></button><h2>{aliasFor(editingCharacterId)}</h2><label>电话号码<input value={characterNumberDraft} onChange={e=>setCharacterNumberDraft(e.target.value.replace(/\D/g, ""))} placeholder="输入角色电话号码"/></label><p className={styles.modalHint}>Phone 与 SMS 共用这个号码；在任一处修改，另一边都会同步显示。</p><button className={styles.saveBtn} onClick={()=>{setCharacterPhoneNumber(editingCharacterId,characterNumberDraft);setEditingCharacterId(null)}}>保存</button></div></div>}
+   </div>;
+--- a/components/photos/photos-app.tsx
++++ b/components/photos/photos-app.tsx
+@@ -3,6 +3,7 @@
+ import { useEffect, useMemo, useRef, useState } from "react";
+ import {
+   Check,
++  Download,
+   MoreHorizontal,
+   ChevronLeft,
+   Image as ImageIcon,
+@@ -51,6 +52,7 @@
+ import { PhotoTagEditor } from "./photo-tag-editor";
+ import { PhotoAlbumSheet } from "./photo-album-sheet";
+ import { PhotoUrlSheet } from "./photo-url-sheet";
++import { saveLibraryImageToDevice } from "@/lib/photo-device-save";
+ import { setPhotoAlbumMembership } from "@/lib/photo-library-storage";
+ 
+ type Props = {
+@@ -729,9 +731,12 @@
+             <strong>{detailPhoto.displayName || "照片"}</strong>
+             <span>{formatPhotoDate(detailPhoto.createdAt)}</span>
+           </div>
+-          <button type="button" className="photos-round-btn photos-danger-btn" onClick={() => void deleteDetailPhoto()} aria-label="删除照片">
+-            <Trash2 size={18} />
+-          </button>
++          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
++            <button type="button" className="photos-round-btn" disabled={!imageUrl}
++              onClick={() => void saveLibraryImageToDevice(imageUrl, detailPhoto.originalName || detailPhoto.displayName || "Float照片").then(message => onNotice?.(message)).catch(error => onNotice?.(error instanceof Error ? error.message : "保存失败"))}
++              aria-label="保存图片到手机" title="保存图片到手机"><Download size={19}/></button>
++            <button type="button" className="photos-round-btn photos-danger-btn" onClick={() => void deleteDetailPhoto()} aria-label="删除照片"><Trash2 size={18}/></button>
++          </div>
+         </header>
+ 
+         <main className="photos-detail-scroll">
+--- a/components/settings/ai-behavior-settings.tsx
++++ b/components/settings/ai-behavior-settings.tsx
+@@ -2,7 +2,7 @@
+ import { useContext, useEffect, useRef, useState } from "react";
+ import { ChevronRight, X } from "lucide-react";
+ import { SettingsContext } from "../phone-settings-app";
+-import { loadMediaPreferences, saveMediaPreferences, MEDIA_APPS, type MediaApp, type MediaPreference, type MediaPreferences } from "@/lib/media-preferences";
++import { loadMediaPreferences, saveMediaPreferences, MEDIA_APPS, type MediaApp, type MediaPreference, type PhotoDeliveryMode, type MediaPreferences, DEFAULT_PHOTO_DELIVERY } from "@/lib/media-preferences";
+ import { DEFAULT_SCHEDULE_PROMPTS, loadSchedulePrompts, saveSchedulePrompt, type SchedulePromptKind } from "@/lib/schedule-prompt-settings";
+ import { DEFAULT_THEQOO_PROMPT, loadTheqooPrompt, saveTheqooPrompt } from "@/lib/theqoo-prompt-settings";
+ const options = <><option value="text">文字优先</option><option value="balanced">平衡</option><option value="free">自由判断</option></>;
+@@ -23,9 +23,12 @@
+  <section><p className="settings-menu-section-title">内容偏好</p><div className="settings-option-group">
+  <label className="ai-media-row"><span>AI 配图倾向</span><select value={value.global} onChange={e=>update({...value,global:e.target.value as MediaPreference})}>{options}</select></label>
+  <button type="button" className="ai-media-row" onClick={()=>setApps(true)}>应用单独设置<ChevronRight size={16}/></button></div>
+- <p className="menu-desc ai-media-note">控制 AI 主动内容的配图倾向。</p></section>
++ <p className="menu-desc ai-media-note">配图倾向决定 AI 想不想发照片；各平台的图片处理方式决定缺图时是否自动生图。两者互不影响。</p></section>
+  <section><p className="settings-menu-section-title">内容生成提示词</p><div className="settings-option-group">{(["calendar","theqoo"] as const).map(kind=><button key={kind} className="ai-media-row" type="button" onClick={()=>{setDraft(kind==="theqoo"?loadTheqooPrompt():loadSchedulePrompts()[kind]);setEditing(kind);setNotice("");}}><span>{names[kind]}<small className="menu-desc settings-row-description">{kind==="calendar"?"工作、兴趣、私人安排与公开节点":"论坛选题、网友生态与评论风格"}</small></span><ChevronRight size={16}/></button>)}</div><p className="menu-desc ai-media-note">修改内容方向，下次生成时生效。已有内容保持不变。</p></section>
+- </> : <div className="settings-option-group">{Object.entries(MEDIA_APPS).map(([id,label])=><label key={id} className="ai-media-row"><span>{label}</span><select value={value.apps[id as MediaApp]||"inherit"} onChange={e=>{const next={...value.apps};if(e.target.value==="inherit")delete next[id as MediaApp];else next[id as MediaApp]=e.target.value as MediaPreference;update({...value,apps:next});}}><option value="inherit">跟随全局</option>{options}</select></label>)}</div>}
++ </> : <div className="settings-option-group">{Object.entries(MEDIA_APPS).map(([id,label]) => <div key={id} className="ai-media-platform-settings">
++   <label className="ai-media-row"><span>{label} · 配图倾向</span><select value={value.apps[id as MediaApp]||"inherit"} onChange={e=>{const next={...value.apps};if(e.target.value==="inherit")delete next[id as MediaApp];else next[id as MediaApp]=e.target.value as MediaPreference;update({...value,apps:next});}}><option value="inherit">跟随全局</option>{options}</select></label>
++   <label className="ai-media-row"><span>{label} · 缺图处理</span><select value={value.delivery[id as MediaApp] || DEFAULT_PHOTO_DELIVERY[id as MediaApp]} onChange={e=>update({...value,delivery:{...value.delivery,[id]:e.target.value as PhotoDeliveryMode}})}><option value="text">优先文字图 · 可手动生图</option><option value="auto">自动生图 · 失败保留文字</option></select></label>
++ </div>)}</div>}
+  {notice && <p role="status" className="menu-desc ai-media-note">{notice}</p>}
+  {editing && <div className="modal-overlay settings-prompt-overlay" onClick={()=>setEditing(null)}><section role="dialog" aria-modal="true" aria-labelledby="schedule-prompt-title" className="modal-dialog settings-prompt-dialog" onClick={e=>e.stopPropagation()} onKeyDown={e=>{if(e.key!=="Tab")return;const nodes=e.currentTarget.querySelectorAll<HTMLElement>('button,textarea');const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}>
+  <div className="settings-dialog-heading"><h3 id="schedule-prompt-title">{names[editing]}提示词</h3><button type="button" aria-label="关闭" onClick={()=>setEditing(null)}><X size={20}/></button></div>
+--- a/components/settings/image-generation-settings.tsx
++++ b/components/settings/image-generation-settings.tsx
+@@ -491,8 +491,8 @@
+                         <Sparkles size={22} strokeWidth={1.75} />
+                     </span>
+                     <span className="settings-tools-menu-copy">
+-                        <span className="menu-label appearance-menu-item-label">启用自动生图</span>
+-                        <span className="menu-desc settings-tools-menu-desc">角色输出照片标签时自动调用图像生成 API。</span>
++                        <span className="menu-label appearance-menu-item-label">启用生图功能</span>
++                        <span className="menu-desc settings-tools-menu-desc">允许图片生成 API 被手动操作及已选择「自动生图」的平台调用；是否自动生成由 AI 行为分别控制。</span>
+                     </span>
+                     <span className="menu-right settings-tools-menu-toggle">
+                         <Toggle checked={settings.enabled} onChange={(enabled) => updateSettings({ enabled })} className="settings-toggle-control" />
+--- a/components/sms/sms-app.module.css
++++ b/components/sms/sms-app.module.css
+@@ -155,3 +155,11 @@
+ .app .chatHeader .personName{display:block;position:relative;width:max-content;max-width:calc(100% - 28px);padding:0;overflow:visible;text-align:center}
+ .app .chatHeader .personNameText{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .app .chatHeader .personName>svg{position:absolute;left:calc(100% + 2px);right:auto;top:50%;transform:translateY(-50%);width:12px;height:12px}
++
++/* Consistent iOS-style boolean switches, not blue checkbox squares. */
++.settings h3{font-size:calc(15px*var(--app-text-scale,1));font-weight:650}
++.settings .toggleRow{font-size:calc(14px*var(--app-text-scale,1));font-weight:500}
++.settings .toggleRow input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:none;width:46px!important;height:27px!important;margin:0!important;padding:0!important;border:0!important;border-radius:99px!important;background:#dadde2!important;position:relative;transition:background .18s ease}
++.settings .toggleRow input[type=checkbox]::after{content:"";position:absolute;left:2px;top:2px;width:23px;height:23px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0002;transition:transform .18s ease}
++.settings .toggleRow input[type=checkbox]:checked{background:#34c759!important}
++.settings .toggleRow input[type=checkbox]:checked::after{transform:translateX(19px)}
+--- a/lib/chat-screenshot.ts
++++ b/lib/chat-screenshot.ts
+@@ -11,7 +11,7 @@
+  const copyStyle=(source:Element,clone:HTMLElement,pseudo?:string)=>{const style=getComputedStyle(source,pseudo);let css='';for(const prop of Array.from(style))css+=`${prop}:${style.getPropertyValue(prop)};`;clone.setAttribute('style',css);if(css.includes('url('))jobs.push(inline(css).then(value=>clone.setAttribute('style',value)));for(const font of style.fontFamily.split(','))fonts.add(font.trim().replace(/["']/g,''));};
+  const snapshot=(source:HTMLElement):HTMLElement=>{const clone=source.cloneNode(false) as HTMLElement;copyStyle(source,clone);for(const name of ['id','data-active','data-highlight','data-multi-selected','data-multi-select','data-selected'])clone.removeAttribute(name);
+   if(source instanceof HTMLImageElement){clone.removeAttribute('srcset');if(source.currentSrc)jobs.push(asset(source.currentSrc).then(url=>(clone as HTMLImageElement).src=url));}
+-  for(const pseudo of ['::before','::after']){const ps=getComputedStyle(source,pseudo);if(ps.content&&!['none','normal','""'].includes(ps.content)){const span=document.createElement('span');copyStyle(source,span,pseudo);if(ps.content.startsWith('"'))span.textContent=ps.content.slice(1,-1);clone.append(span);}}
++  for(const pseudo of ['::before','::after']){const ps=getComputedStyle(source,pseudo);if(ps.content&&!['none','normal'].includes(ps.content)){const span=document.createElement('span');copyStyle(source,span,pseudo);if(ps.content.startsWith('"'))span.textContent=ps.content.slice(1,-1);clone.append(span);}}
+   for(const child of Array.from(source.childNodes)){if(child instanceof HTMLElement){if(child.matches('.chat-multi-select-check,.chat-context-menu,button,input,textarea,[data-ui="multi-select"]'))continue;clone.append(snapshot(child));}else clone.append(child.cloneNode(true));}return clone;
+  };
+  const wrapper=document.createElement('div');wrapper.setAttribute('xmlns','http://www.w3.org/1999/xhtml');const style=getComputedStyle(root);Object.assign(wrapper.style,{width:width+'px',padding:'20px 16px',boxSizing:'border-box',display:'flex',flexDirection:'column',gap:'12px',backgroundColor:style.backgroundColor==='rgba(0, 0, 0, 0)'?'#f5f5f7':style.backgroundColor,backgroundImage:style.backgroundImage,backgroundSize:'cover',backgroundPosition:'center',fontFamily:style.fontFamily,color:style.color});jobs.push(inline(style.backgroundImage).then(value=>{wrapper.style.backgroundImage=value;}));
+--- a/lib/lysn-engine.ts
++++ b/lib/lysn-engine.ts
+@@ -73,7 +73,7 @@
+     (mode==="new"||mode==="reply")?`本人日程（限制优先于活跃度）：\n${calendar.summary||"当前无日程限制"}\n${calendar.level===2?"只能短暂回复，本轮最多一两句。":"空闲时按自己的来访、阅读习惯决定发不发。"}`:"历史开场白和生日内容只依据指定日期可知的事实，不借用当前日程。",
+     "自然地按人设发短消息，不要总写公告。original 必须使用角色本人最自然的语言（例如人设为韩国人的角色主要用韩语，日本人的角色主要用日语）；translated 是忠实简体中文翻译，原文中文则相同。语音逐字稿也遵守这一要求，不能因为译文是中文就把原文改成中文。",
+     "艺人可以使用 {{nickname}} 占位符自然称呼每位订阅者；系统会为每位订阅者替换，绝不能把某人的私密姓名写进面向全部粉丝的文本。",
+-    mode === "birthday" ? "生日留言写成适合卡片的一段话，可以亲切但不伪装你和这个订阅者私下相识。" : "频道里的匿名粉丝留言可以作为灵感，但不必一条一条轮流答复；像本人随手分享近况那样，自然时可连发短句，安静时也可不发。别把每次出现都写成有问必答的私聊。",
++    mode === "birthday" ? "生日留言写成适合卡片的一段话，可以亲切但不伪装你和这个订阅者私下相识。" : "这是面向大量订阅者的频道，不是一对一私聊。你发送的时间可以刚好和某位粉丝同步，甚至立刻再发好几条；但内容大多数时候应由自己的近况、思路、心情驱动，不默认承接刚收到的留言。看到留言也可以不答，偶尔精准回答才显得自然。可以引用你模拟的其他匿名粉丝留言；模拟粉丝不等于当前 User，不能混入其真实聊天或记忆。",
+     mode === "opening" ? configuredOpener ? "这是本次订阅进入频道显示的开场白。用户提供了开场白内容：保持意思和语气，用角色本人自然的语言写 original；用户已用角色语言写成原文时保留原文措辞；translated 是忠实的简体中文翻译。只写一条，不要增添新信息。" : "这是本次订阅进入频道显示的开场白，写一条符合人设的开场消息。它不算正式到场或回复，也不要提及已经读到粉丝来信。" : "",
+     mode === "opening" && historicalDate ? `这条开场白要放在订阅历史的 ${historicalDate}；不要把现实今天才发生的事情说成当年就发生，也不要声称已经认识当前订阅者。` : "",
+     mode === "birthday" ? `这是订阅者 ${birthdayYear || "这一"} 年的生日卡片。只以当年为背景写符合人设的祝福，不提那一年之后才发生的事；可以使用 {{nickname}} 占位符；不要声称现实今天就是生日，用户可能在日历回看往年的卡片。` : "",
+@@ -90,10 +90,10 @@
+     "photo 必须填写照片描述，voice 的 original 是逐字稿。",
+     `频道最近消息：\n${timeline || "暂无消息"}`,
+     ...history.filter(message => message.sender === "artist" && message.photoStoryContext).slice(-3).map(message => photoStoryReplyContext(message.photoStoryContext, characterId)).filter(Boolean),
+-    fanMessage ? `最近收到的匿名粉丝来信：${fanMessage}` : "",
++    fanMessage ? `频道粉丝留言样本（不代表一定被你看见或必须回应；众多留言之一）：${fanMessage}` : "",
+     configuredOpener ? `用户设定的开场白内容（仅作开场白，不是粉丝来信）：${configuredOpener}` : "",
+   ].filter(Boolean).join("\n") };
+-  const messages: LLMMessage[] = [...prompt, instruction, { role: "user", content: mode === "opening" ? configuredOpener ? "按用户设定内容，生成角色语言原文和简体中文译文的开场白。" : "生成一次性频道开场白。" : mode === "birthday" ? "今天生日，发送一条生日祝福。" : mode === "reply" ? "判断艺人现在是否想公开发消息，如想发请自然回应匿名反馈。" : "判断艺人现在是否想公开发新消息。" }];
++  const messages: LLMMessage[] = [...prompt, instruction, { role: "user", content: mode === "opening" ? configuredOpener ? "按用户设定内容，生成角色语言原文和简体中文译文的开场白。" : "生成一次性频道开场白。" : mode === "birthday" ? "今天生日，发送一条生日祝福。" : mode === "reply" ? "判断艺人此刻是否想在面向许多粉丝的频道发消息；如果想发，请优先按自己正在经历、想聊的事展开，不必回应任何一条最新来信。即便紧接着粉丝发送，也不意味着你读到了那句话。" : "判断艺人现在是否想公开发新消息。" }];
+   const requestMeta = { characterName: `Lysn:${character.name}`, userName: "订阅粉丝" };
+   const requestOptions = { appId: "lysn", translationCharacterId: characterId, appTags: ["lysn", "bubble"], skipOutputRegex: true, skipWorldline: Boolean(historicalDate)||mode==="birthday" };
+   let raw = await sendLLMRequest(api, preset, messages, regexes, requestMeta, requestOptions);
+--- a/lib/media-preferences.ts
++++ b/lib/media-preferences.ts
+@@ -1,14 +1,22 @@
+ import { kvGet, kvSet, registerKvMigration } from "./kv-db";
+ export type MediaPreference = "text" | "balanced" | "free";
++export type PhotoDeliveryMode = "text" | "auto";
+ export const MEDIA_APPS = { chat: "Chat", moments: "朋友圈", lysn: "LYSN", twitter: "X", weverse: "Weverse Artist" } as const;
+ export type MediaApp = keyof typeof MEDIA_APPS;
+-export type MediaPreferences = { global: MediaPreference; apps: Partial<Record<MediaApp, MediaPreference>> };
++export type MediaPreferences = { global: MediaPreference; apps: Partial<Record<MediaApp, MediaPreference>>; delivery: Partial<Record<MediaApp, PhotoDeliveryMode>> };
++/** Image creation is independent of the intent to share an image. */
++export const DEFAULT_PHOTO_DELIVERY: Record<MediaApp, PhotoDeliveryMode> = { chat: "text", lysn: "text", moments: "auto", twitter: "auto", weverse: "auto" };
++export function effectivePhotoDelivery(appId: string): PhotoDeliveryMode {
++  if (!(appId in DEFAULT_PHOTO_DELIVERY)) return "text";
++  const value = loadMediaPreferences().delivery[appId as MediaApp];
++  return value === "text" || value === "auto" ? value : DEFAULT_PHOTO_DELIVERY[appId as MediaApp];
++}
+ const KEY = "ai_phone_media_preferences_v1";
+ const RECENT = "ai_phone_media_decisions_v1";
+ registerKvMigration(KEY); registerKvMigration(RECENT);
+ export function loadMediaPreferences(): MediaPreferences {
+-  try { const value = JSON.parse(kvGet(KEY) || "{}"); return { global: valid(value.global) ? value.global : "text", apps: Object.fromEntries(Object.entries(value.apps || {}).filter(([key, mode]) => key in MEDIA_APPS && valid(mode))) }; }
+-  catch { return { global: "text", apps: {} }; }
++  try { const value = JSON.parse(kvGet(KEY) || "{}"); return { global: valid(value.global) ? value.global : "text", apps: Object.fromEntries(Object.entries(value.apps || {}).filter(([key, mode]) => key in MEDIA_APPS && valid(mode))), delivery: Object.fromEntries(Object.entries(value.delivery || {}).filter(([key, mode]) => key in MEDIA_APPS && (mode === "text" || mode === "auto"))) }; }
++  catch { return { global: "text", apps: {}, delivery: {} }; }
+ }
+ function valid(mode: unknown): mode is MediaPreference { return mode === "text" || mode === "balanced" || mode === "free"; }
+ export function saveMediaPreferences(value: MediaPreferences): void { kvSet(KEY, JSON.stringify(value)); }
+--- a/lib/media-resolver.ts
++++ b/lib/media-resolver.ts
+@@ -1,3 +1,4 @@
++import { effectivePhotoDelivery } from "./media-preferences";
+ import { photoStorySearchText } from "./photo-story-data";
+ import { getChatImageFromIndexedDB, saveChatImageToIndexedDB } from "./chat-asset-storage";
+ import { generateImageFromConfiguredApi } from "./image-generation-service";
+@@ -210,7 +211,9 @@
+ export async function resolveMediaForUse(request: MediaResolverRequest): Promise<MediaResolverResult | null> {
+   const description = request.description.trim();
+   if (!description) return null;
+-  const socialAuto = (!request.mode || request.mode === "auto") && ["moments", "twitter_main", "twitter_alt", "wvs_artist"].includes(request.channel);
++  // Automatically generate ONLY when the specific app chooses it. Text placeholders
++  // remain valid even with the image-generation provider disabled.
++  const socialAuto = (!request.mode || request.mode === "auto") && effectivePhotoDelivery(request.appId) === "auto";
+   const generateOrPlain = async () => { const result = await generateMedia(request, request.intentKind || "other").catch(() => null); return result?.imageUrl ? result : null; };
+   if (request.mode === "text") return { source: "text_placeholder", placeholderDescription: description };
+   const preferences = loadPhotoLibrary().preferences;
+--- /dev/null
++++ b/lib/photo-deck-motion.ts
+@@ -0,0 +1,41 @@
++/** Shared, linear photo-deck motion: faithfully follows the approved interactive prototype. */
++export const PHOTO_DECK_THRESHOLD = 62;
++
++export function photoDeckLayer(index: number, active: number, count: number, drag: number) {
++    const relative = index - active;
++    const distance = Math.abs(relative);
++    const direction = drag < 0 && active < count - 1 ? 1 : drag > 0 && active > 0 ? -1 : 0;
++    const amount = Math.min(1, Math.abs(drag) / 110);
++    const tucked = direction !== 0 && Math.abs(drag) >= PHOTO_DECK_THRESHOLD;
++    // The first card is biased toward the left; the last toward the right.
++    // Middle cards have symmetric neighbors. The front is always at 0 degrees at rest.
++    const center = (active - (count - 1) / 2) * 13;
++    let x = center;
++    let rotation = 0;
++    let scale = 1;
++    let zIndex = 32;
++    if (relative === 0) {
++        x += drag * .58;
++        rotation = drag * .13;
++        scale -= Math.min(.03, Math.abs(drag) / 3200);
++        if (tucked) zIndex = 10; // The turning corner goes behind its successor.
++    } else {
++        const side = Math.sign(relative);
++        x += side * (distance === 1 ? 24 : 41);
++        rotation = side * (distance === 1 ? 2.3 : 4);
++        scale -= distance * .024;
++        zIndex = 18 - distance;
++        if (relative === direction) {
++            x = x * (1 - amount) + center * amount;
++            rotation *= (1 - amount);
++            scale += (1 - scale) * amount;
++            zIndex = tucked ? 35 : 19;
++        }
++    }
++    return {
++        opacity: distance <= 2 ? 1 : 0,
++        zIndex,
++        transform: `translate3d(${x.toFixed(2)}px,0,0) rotate(${rotation.toFixed(2)}deg) scale(${scale.toFixed(4)})`,
++        pointerEvents: (relative === 0 ? 'auto' : 'none') as 'auto' | 'none',
++    };
++}
+--- /dev/null
++++ b/lib/photo-device-save.ts
+@@ -0,0 +1,34 @@
++"use client";
++import { Capacitor } from "@capacitor/core";
++import { downloadFile } from "./download-utils";
++import { saveChatScreenshot } from "./chat-screenshot-actions";
++
++function fileName(name: string, mime: string): string {
++  const safe = (name.trim() || "Float照片").replace(/[\\/:*?"<>|]/g, "-").slice(0, 64);
++  const extension = mime === "image/jpeg" ? ".jpg" : mime === "image/webp" ? ".webp" : ".png";
++  return /\.(png|jpe?g|webp)$/i.test(safe) ? safe : safe + extension;
++}
++async function pngForNativeGallery(blob: Blob): Promise<Blob> {
++  if (blob.type === "image/png") return blob;
++  const bitmap = await createImageBitmap(blob);
++  try {
++    const canvas = document.createElement("canvas");
++    canvas.width = bitmap.width; canvas.height = bitmap.height;
++    const context = canvas.getContext("2d");
++    if (!context) throw new Error("当前设备不支持图片保存转换");
++    context.drawImage(bitmap, 0, 0);
++    return await new Promise<Blob>((resolve, reject) => canvas.toBlob(output => output ? resolve(output) : reject(new Error("图片转换失败")), "image/png"));
++  } finally { bitmap.close(); }
++}
++/** Android uses the already-installed native Gallery plugin; iOS uses the system share sheet. */
++export async function saveLibraryImageToDevice(imageUrl: string, name: string): Promise<string> {
++  if (!imageUrl) throw new Error("照片尚未加载完成");
++  const response = await fetch(imageUrl);
++  if (!response.ok) throw new Error("无法读取照片文件");
++  const blob = await response.blob();
++  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
++    return saveChatScreenshot(await pngForNativeGallery(blob));
++  }
++  await downloadFile(blob, fileName(name, blob.type));
++  return Capacitor.getPlatform() === "ios" ? "请在系统分享菜单选择‘存储图像’" : "已发起图片保存";
++}
+--- a/lib/settings-storage.ts
++++ b/lib/settings-storage.ts
+@@ -707,7 +707,7 @@
+ };
+ 
+ export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
+-    enabled: false,
++    enabled: true,
+     provider: "openai",
+     requestMode: "direct",
+     apiKey: "",
+--- a/styles/chat.css
++++ b/styles/chat.css
+@@ -8406,3 +8406,22 @@
+ .chat-message-notice-bar:not([data-notice-app="phone"]) .chat-message-notice-name {
+   line-height: 1.4;
+ }
++
++/* Resource 035: shared linear tuck/shuffle, with sender-side expand control. */
++.chat-photo-deck { gap: 10px; padding: 6px 4px; }
++.chat-photo-deck--mine { flex-direction: row-reverse; }
++.chat-photo-deck-stack { flex: 0 0 204px; width: 204px; height: 255px; touch-action: pan-y; }
++.chat-photo-deck-card { left: 12px; width: 180px; height: 240px; border-radius: 15px; outline: 1px solid rgba(32,31,44,.1); outline-offset: -1px;
++  transition: transform .41s cubic-bezier(.2,.82,.25,1), opacity .26s ease, filter .41s; will-change: transform; transform-origin: 50% 50%; }
++.chat-photo-deck-card .chat-photo-card { margin: 0; border-radius: inherit; box-shadow: none; overflow: hidden; }
++.chat-photo-deck-card .chat-photo-card-image { display: block; }
++.chat-photo-deck-toggle { background: #ebecef; color: #555b66; }
++/* Standalone photos and Live Photos: fit within identical bounds, never crop. */
++.chat-photo-card--image { overflow: hidden; border-radius: 15px; margin: 2px 0 4px; }
++.chat-photo-card--image .chat-photo-card-image { display: block; max-width: min(190px, 62vw); max-height: 270px; width: auto; height: auto; object-fit: contain; border-radius: inherit; }
++
++.chat-live-photo-card { width: min(190px, 62vw); max-width: 100%; max-height: 270px; overflow: hidden; border-radius: 15px; }
++.chat-live-photo-card .once-media { border-radius: 15px !important; }
++.chat-live-photo-card img, .chat-live-photo-card video, .chat-live-photo-card canvas {
++  display: block; width: auto !important; height: auto; max-width: 100%; max-height: 270px !important; object-fit: contain;
++}
