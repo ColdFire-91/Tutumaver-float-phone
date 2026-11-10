@@ -1,0 +1,23 @@
+name: Audit 035 merge compatibility (no source writes)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/share-035-038-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test selective 035 patch against Tutumaver 1.4
+        run: |
+          patch --dry-run --batch -p1 -F3 < .share-sync/resource035-selected.patch > /tmp/patch-check.log 2>&1 || true
+          cat /tmp/patch-check.log
+          echo "=== failures / fuzz ==="
+          grep -E "FAILED|offset|fuzz|Reversed|can't find file|malformed" /tmp/patch-check.log || true
+          echo "=== patch targets ==="
+          grep -c '^patching file' /tmp/patch-check.log || true
+          echo "=== diagnostic finished ==="
