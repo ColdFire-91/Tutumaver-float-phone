@@ -426,17 +426,6 @@
 +.modalCard input.settingsSwitch[type=checkbox]::after{content:"";position:absolute;left:2px;top:2px;width:23px;height:23px;background:#fff;border-radius:50%;box-shadow:0 1px 3px #0002;transition:transform .18s ease}
 +.modalCard input.settingsSwitch[type=checkbox]:checked{background:#34c759!important}
 +.modalCard input.settingsSwitch[type=checkbox]:checked::after{transform:translateX(19px)}
---- a/components/phone/phone-app.tsx
-+++ b/components/phone/phone-app.tsx
-@@ -310,7 +310,7 @@
-       {tab === "keypad" && <section className={styles.keypadPage}><div className={styles.dialDisplay}>{dial || " "}</div><button className={styles.addNumber}>添加号码</button>{dialCandidates.length > 0 && !matchDial && <div className={styles.dialSuggestions}>{dialCandidates.map(c=><button key={c.id} onClick={()=>setDial(getCharacterPhoneNumber(c.id))}><span className={styles.suggestionAvatar}><img src={DEFAULT_CONTACT_AVATAR} alt=""/></span><span><strong>{aliasFor(c.id)}</strong><small>{getCharacterPhoneNumber(c.id)}</small></span></button>)}</div>}{matchDial && <div className={styles.dialMatch}>{aliasFor(matchDial.id)} · {getCharacterPhoneNumber(matchDial.id)}</div>}<div className={styles.keypad}>{[["1",""],["2","ABC"],["3","DEF"],["4","GHI"],["5","JKL"],["6","MNO"],["7","PQRS"],["8","TUV"],["9","WXYZ"],["*",""],["0","+"],["#",""]].map(([n,l])=><button key={n} onClick={()=>setDial(v=>v+n)}><strong>{n}</strong><span>{l}</span></button>)}</div><div className={styles.keypadBottom}><span/><button className={styles.callKey} disabled={!matchDial} onClick={()=>matchDial&&startOutgoing(matchDial.id)}><Phone/></button><button className={styles.deleteKey} onClick={()=>setDial(v=>v.slice(0,-1))}><Delete/></button></div></section>}
-     </main>
-     <nav className={styles.tabs}><button className={tab==="favorites"?styles.selected:undefined} onClick={()=>setTab("favorites")}><Star/><span>个人收藏</span></button><button className={tab==="recents"?styles.selected:undefined} onClick={()=>setTab("recents")}><Clock3/><span>最近通话</span></button><button className={tab==="contacts"?styles.selected:undefined} onClick={()=>setTab("contacts")}><ContactRound/><span>通讯录</span></button><button className={tab==="keypad"?styles.selected:undefined} onClick={()=>setTab("keypad")}><Keyboard/><span>拨号键盘</span></button></nav>
--    {showPhoneSettings && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="电话设置"><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setShowPhoneSettings(false)} aria-label="关闭"><X/></button><h2>电话设置</h2><CommunicationSettings channel="phone"/><label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}><span>来电声音</span><input type="checkbox" role="switch" aria-label="来电声音" checked={ringtoneEnabled} onChange={e=>setRingtoneEnabled(e.target.checked)}/></label><AudioSourcePicker defaultValue={DEFAULT_PHONE_RINGTONE} label="来电铃声" value={ringtoneDraft} onChange={setRingtoneDraft} onNotice={onNotice} defaultHint="保存后生效；恢复默认后使用电话的内置来电铃声。"/><button className={styles.saveBtn} onClick={()=>{const url=ringtoneDraft.trim();if(url && !isRingtoneSource(url)){onNotice?.("请填写 http 或 https 音频地址");return;}const next=loadPhoneState();next.ringtoneUrl=url;next.ringtoneEnabled=ringtoneEnabled;savePhoneState(next);setShowPhoneSettings(false)}}>保存</button></div></div>}
-+    {showPhoneSettings && <div className={styles.modal} role="dialog" aria-modal="true" aria-label="电话设置"><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setShowPhoneSettings(false)} aria-label="关闭"><X/></button><h2>电话设置</h2><CommunicationSettings channel="phone"/><label className={styles.settingsToggleRow}><span>来电声音</span><input className={styles.settingsSwitch} type="checkbox" role="switch" aria-label="来电声音" checked={ringtoneEnabled} onChange={e=>setRingtoneEnabled(e.target.checked)}/></label><AudioSourcePicker defaultValue={DEFAULT_PHONE_RINGTONE} label="来电铃声" value={ringtoneDraft} onChange={setRingtoneDraft} onNotice={onNotice} defaultHint="保存后生效；恢复默认后使用电话的内置来电铃声。"/><button className={styles.saveBtn} onClick={()=>{const url=ringtoneDraft.trim();if(url && !isRingtoneSource(url)){onNotice?.("请填写 http 或 https 音频地址");return;}const next=loadPhoneState();next.ringtoneUrl=url;next.ringtoneEnabled=ringtoneEnabled;savePhoneState(next);setShowPhoneSettings(false)}}>保存</button></div></div>}
-     {editingMe && <div className={styles.modal}><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setEditingMe(false)}><X/></button><h2>我的名片</h2><label>电话号码<input value={myNumberDraft} onChange={e=>setMyNumberDraft(e.target.value)} placeholder="例如 +86 138 0000 0000"/></label><p className={styles.modalHint}>这里与 SMS 的真实号码共用同一份数据，保存后两边同步。</p><button className={styles.saveBtn} onClick={()=>{setUserPhoneNumber(myNumberDraft);setEditingMe(false)}}>保存</button></div></div>}
-     {editingCharacterId && <div className={styles.modal}><div className={styles.modalCard}><button className={styles.modalClose} onClick={()=>setEditingCharacterId(null)}><X/></button><h2>{aliasFor(editingCharacterId)}</h2><label>电话号码<input value={characterNumberDraft} onChange={e=>setCharacterNumberDraft(e.target.value.replace(/\D/g, ""))} placeholder="输入角色电话号码"/></label><p className={styles.modalHint}>Phone 与 SMS 共用这个号码；在任一处修改，另一边都会同步显示。</p><button className={styles.saveBtn} onClick={()=>{setCharacterPhoneNumber(editingCharacterId,characterNumberDraft);setEditingCharacterId(null)}}>保存</button></div></div>}
-   </div>;
 --- a/components/photos/photos-app.tsx
 +++ b/components/photos/photos-app.tsx
 @@ -3,6 +3,7 @@
@@ -559,34 +548,6 @@
    const requestMeta = { characterName: `Lysn:${character.name}`, userName: "订阅粉丝" };
    const requestOptions = { appId: "lysn", translationCharacterId: characterId, appTags: ["lysn", "bubble"], skipOutputRegex: true, skipWorldline: Boolean(historicalDate)||mode==="birthday" };
    let raw = await sendLLMRequest(api, preset, messages, regexes, requestMeta, requestOptions);
---- a/lib/media-preferences.ts
-+++ b/lib/media-preferences.ts
-@@ -1,14 +1,22 @@
- import { kvGet, kvSet, registerKvMigration } from "./kv-db";
- export type MediaPreference = "text" | "balanced" | "free";
-+export type PhotoDeliveryMode = "text" | "auto";
- export const MEDIA_APPS = { chat: "Chat", moments: "朋友圈", lysn: "LYSN", twitter: "X", weverse: "Weverse Artist" } as const;
- export type MediaApp = keyof typeof MEDIA_APPS;
--export type MediaPreferences = { global: MediaPreference; apps: Partial<Record<MediaApp, MediaPreference>> };
-+export type MediaPreferences = { global: MediaPreference; apps: Partial<Record<MediaApp, MediaPreference>>; delivery: Partial<Record<MediaApp, PhotoDeliveryMode>> };
-+/** Image creation is independent of the intent to share an image. */
-+export const DEFAULT_PHOTO_DELIVERY: Record<MediaApp, PhotoDeliveryMode> = { chat: "text", lysn: "text", moments: "auto", twitter: "auto", weverse: "auto" };
-+export function effectivePhotoDelivery(appId: string): PhotoDeliveryMode {
-+  if (!(appId in DEFAULT_PHOTO_DELIVERY)) return "text";
-+  const value = loadMediaPreferences().delivery[appId as MediaApp];
-+  return value === "text" || value === "auto" ? value : DEFAULT_PHOTO_DELIVERY[appId as MediaApp];
-+}
- const KEY = "ai_phone_media_preferences_v1";
- const RECENT = "ai_phone_media_decisions_v1";
- registerKvMigration(KEY); registerKvMigration(RECENT);
- export function loadMediaPreferences(): MediaPreferences {
--  try { const value = JSON.parse(kvGet(KEY) || "{}"); return { global: valid(value.global) ? value.global : "text", apps: Object.fromEntries(Object.entries(value.apps || {}).filter(([key, mode]) => key in MEDIA_APPS && valid(mode))) }; }
--  catch { return { global: "text", apps: {} }; }
-+  try { const value = JSON.parse(kvGet(KEY) || "{}"); return { global: valid(value.global) ? value.global : "text", apps: Object.fromEntries(Object.entries(value.apps || {}).filter(([key, mode]) => key in MEDIA_APPS && valid(mode))), delivery: Object.fromEntries(Object.entries(value.delivery || {}).filter(([key, mode]) => key in MEDIA_APPS && (mode === "text" || mode === "auto"))) }; }
-+  catch { return { global: "text", apps: {}, delivery: {} }; }
- }
- function valid(mode: unknown): mode is MediaPreference { return mode === "text" || mode === "balanced" || mode === "free"; }
- export function saveMediaPreferences(value: MediaPreferences): void { kvSet(KEY, JSON.stringify(value)); }
 --- a/lib/media-resolver.ts
 +++ b/lib/media-resolver.ts
 @@ -1,3 +1,4 @@
