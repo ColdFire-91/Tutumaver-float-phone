@@ -1,4 +1,4 @@
-# Tutuma Float Phone 1.4
+# Tutuma Float Phone 1.5
 
 本项目基于小笼包老师的 **AI Virtual Phone** 原始项目，并在 **MOMO（末末）老师的二次开发版本**基础上继续开发。
 
