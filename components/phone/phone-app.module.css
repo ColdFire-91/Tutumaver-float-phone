@@ -61,3 +61,41 @@
 /* Build9: independent Phone call layout. */
 .callBackdrop{background-image:none!important;background:#29292c;filter:none;transform:none;inset:0}.callTint{background:linear-gradient(160deg,#ffffff00,#ffffff04 65%,#0002)}.callTop{padding-top:calc(var(--phone-safe-top,48px) + 30px);flex:none}.callTop .callStatus{font-size:calc(25px * var(--app-text-scale,1));color:#aaa;font-weight:550;line-height:1.4;margin:0 0 8px}.callName{font-size:calc(30px * var(--app-text-scale,1));font-weight:500}.callSubtitle{font-size:12px;color:#aaa;margin-top:9px}.callConversation{position:relative;z-index:1;width:100%;flex:1;min-height:0;display:flex;flex-direction:column;padding:18px 20px 10px}.transcript{flex:1;max-height:none;min-height:0;mask-image:none;gap:9px;padding:0;overflow:auto}.line{border-radius:16px 16px 16px 4px;background:#ffffff15;padding:12px 13px;font-size:15px;max-width:90%}.userLine{border-radius:16px 16px 4px 16px;background:#ffffff24}.charLine{background:#ffffff16}.translation{border-top:1px solid #ffffff27;padding-top:7px;margin-top:7px;font-size:12px;line-height:1.6;color:#ddd;opacity:.75}.inputRow{margin-top:12px;flex:none;gap:5px;height:46px}.callControls{position:relative;bottom:auto;left:auto;right:auto;flex:none;width:100%;padding:8px 26px max(27px,env(safe-area-inset-bottom));gap:45px}.sixControls{display:grid;grid-template-columns:repeat(3,1fr);gap:20px 25px;width:100%;max-width:400px;margin:auto}.sixControls>div{display:flex;flex-direction:column;align-items:center;gap:8px}.sixControls span{font-size:12px}.roundBtn{width:65px;height:65px;background:#ffffff19;flex:none;cursor:pointer}.roundBtn[data-active="1"]{background:#fff;color:#29292d}.roundBtn:disabled{opacity:.42;cursor:default}.decline{background:#ff252b}.callWait{font-size:12px;color:#bbb;padding:10px}.callScreen{padding-bottom:0}.sixControls .roundBtn svg{width:25px;height:25px}
 @media(max-height:600px){.callTop{padding-top:35px}.sixControls{gap:8px 20px}.roundBtn{width:48px;height:48px}.callControls{padding-bottom:12px}.callConversation{padding-top:12px}}
+
+/* Telephone settings use the same compact toggle typography as SMS. */
+.modalCard h2{font-size:calc(19px * var(--app-text-scale,1));font-weight:650;letter-spacing:-.025em}
+.modalCard .settingsToggleRow{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;min-height:48px!important;padding:8px 0;font-size:calc(14px * var(--app-text-scale,1));font-weight:500}
+.modalCard input.settingsSwitch[type=checkbox]{appearance:none;-webkit-appearance:none;flex:none;width:46px!important;height:27px!important;margin:0!important;padding:0!important;border:0!important;border-radius:100px!important;background:#d9dce2!important;position:relative;transition:background .18s ease}
+.modalCard input.settingsSwitch[type=checkbox]::after{content:"";position:absolute;left:2px;top:2px;width:23px;height:23px;background:#fff;border-radius:50%;box-shadow:0 1px 3px #0002;transition:transform .18s ease}
+.modalCard input.settingsSwitch[type=checkbox]:checked{background:#34c759!important}
+.modalCard input.settingsSwitch[type=checkbox]:checked::after{transform:translateX(19px)}
+
+
+/* 1.6 reviewed public call UI compatibility: append approved call-only styles. */
+/* Resource 039: Phone's approved 1.1 on-call composition. */
+.phone039Call{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;overflow:hidden;background:#29292c}
+.phone039Call .callTop{padding-top:calc(var(--phone-safe-top,48px) + 30px);flex:none}
+.phone039Controls{position:absolute;z-index:7;bottom:max(26px,env(safe-area-inset-bottom));left:0;right:0;min-height:76px;display:flex;align-items:center;justify-content:space-around;gap:18px;padding:0 29px}
+.phone039Controls>div{display:flex;flex-direction:column;gap:7px;align-items:center;justify-content:center;min-width:61px}
+.phone039Controls span{font-size:12px;font-weight:600}
+.phone039Round{width:64px;height:64px;flex:0 0 64px;border:0;border-radius:50%;display:grid;place-items:center;background:#414146;color:#fff;cursor:pointer}
+.phone039Round[data-active="1"]{background:#faf9fb;color:#25252b}
+.phone039Round:disabled{opacity:.5}
+.phone039Hang{background:#ff1532!important;color:#fff!important}
+.phone039Accept{background:#29c56e!important;color:#fff!important}
+.phone039Conversation{position:absolute;z-index:4;top:38%;bottom:147px;left:18px;right:18px;min-height:0;display:flex;flex-direction:column;gap:10px}
+.phone039Transcript{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none;mask-image:none;padding:4px 0}
+.phone039Transcript::-webkit-scrollbar{display:none}
+.phone039Transcript :global(.call039-transcript .vc-line[data-role="user"]){align-items:flex-end}
+.phone039Transcript :global(.call039-transcript .vc-line[data-role="assistant"]){align-items:flex-start}
+.phone039Transcript :global(.call039-transcript .vc-line[data-role="user"] .vc-bubble-main .vc-play){order:3}
+.phone039Transcript :global(.call039-transcript .vc-line[data-role="user"] .vc-bubble-main .vc-original){order:1}
+.phone039Transcript :global(.call039-transcript .vc-line[data-role="user"] .vc-bubble-main .vc-bubble-right){order:2}
+.phone039Transcript :global(.call039-transcript .vc-line[data-role="user"] .vc-translation){margin-left:0;margin-right:32px}
+.phone039InputRow{height:46px;flex:none;display:flex;align-items:center;gap:7px;padding:5px 6px 5px 13px;border-radius:24px;background:#58565bd7;border:1px solid #ffffff2c}
+.phone039InputRow input{border:0;outline:0;background:transparent;color:#fff;font-size:12px;flex:1;min-width:0;width:0}
+.phone039InputRow input::placeholder{color:#d1cdd2}
+.phone039InputRow button{flex:0 0 35px;width:35px;height:35px;border:0;border-radius:50%;background:#fff;color:#252329;font-weight:750;font-size:22px}
+.phone039InputRow button:disabled{opacity:.5}
+.phone039Queued{font-size:10px;margin:0 9px;color:#d2ccd4}
+@media(max-height:640px){.phone039Conversation{top:31%;bottom:115px}.phone039Controls{bottom:12px}.phone039Round{width:51px;height:51px;flex-basis:51px}}

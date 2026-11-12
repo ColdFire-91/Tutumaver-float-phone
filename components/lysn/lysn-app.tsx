@@ -1,7 +1,9 @@
 "use client";
 
+import { AudioSourcePicker } from "@/components/audio-source-picker";
+import { DEFAULT_LYSN_SOUND } from "@/lib/default-notification-sounds";
 import {lysnCalendarContext} from "@/lib/lysn-calendar-context";
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ArrowUp,
   Camera,
@@ -60,6 +62,7 @@ import {
   type LysnUserProfile,
 } from "@/lib/lysn-storage";
 import styles from "./lysn-app.module.css";
+import { PHOTO_DECK_THRESHOLD, photoDeckLayer } from "@/lib/photo-deck-motion";
 
 type Tab = "friends" | "chats" | "more";
 type Route = "artist" | "chat" | "details" | "calendar" | "ourBox" | "media" | "stickers" | "myStickers" | "artistEdit" | "myProfile" | "myEdit" | "settings" | null;
@@ -683,9 +686,9 @@ export function LysnApp({ onClose, onNotice }: { onClose: () => void; onNotice?:
   const messageItems: Array<LysnMessage | LysnMessage[]> = [];
   for (const message of messages) {
     const previous = messageItems.at(-1);
-    if (!chatSearchOpen && room.foldPhotos !== false && message.sender === "artist" && message.kind === "photo" && (message.imageUrl || message.photoDescription) && previous) {
+    if (!chatSearchOpen && room.foldPhotos !== false && message.kind === "photo" && (message.imageUrl || message.photoDescription) && previous) {
       const last = Array.isArray(previous) ? previous.at(-1) : previous;
-      if (last?.sender === "artist" && last.kind === "photo" && (last.imageUrl || last.photoDescription) && !last.quote && !message.quote && (last.photoCaptionDetached || !last.original || /^(?:照片|图片|photo|picture|사진)$/i.test(last.original)) && (message.photoCaptionDetached || !message.original || /^(?:照片|图片|photo|picture|사진)$/i.test(message.original)) && message.createdAt - last.createdAt < 120000) {
+      if (last?.sender === message.sender && last.kind === "photo" && (last.imageUrl || last.photoDescription) && !last.quote && !message.quote && (last.photoCaptionDetached || !last.original || /^(?:照片|图片|photo|picture|사진)$/i.test(last.original)) && (message.photoCaptionDetached || !message.original || /^(?:照片|图片|photo|picture|사진)$/i.test(message.original)) && message.createdAt - last.createdAt < 120000) {
         if (Array.isArray(previous)) previous.push(message);
         else messageItems[messageItems.length - 1] = [previous, message];
         continue;
@@ -699,10 +702,10 @@ export function LysnApp({ onClose, onNotice }: { onClose: () => void; onNotice?:
   const renderMessage = (item: LysnMessage | LysnMessage[]) => {
     if (Array.isArray(item)) {
       return (
-        <div key={item[0].id} id={`lysn-msg-${item[0].id}`} className={styles.message}>
-          <Avatar src={avatar} name={roomName} className={`${styles.messageAvatar} ${styles.artistAvatarRing}`}/>
+        <div key={item[0].id} id={`lysn-msg-${item[0].id}`} className={`${styles.message} ${item[0].sender === "fan" ? styles.mine : ""}`}>
+          {item[0].sender === "artist" && <Avatar src={avatar} name={roomName} className={`${styles.messageAvatar} ${styles.artistAvatarRing}`}/>}
           <div className={styles.messageBody}>
-            <div className={styles.senderLine}><ArtistBadge/><b>{displayName}</b></div>
+            {item[0].sender === "artist" && <div className={styles.senderLine}><ArtistBadge/><b>{displayName}</b></div>}
             <PhotoStack rows={item} onOpen={setViewerUrl} onEdit={openEditMessage}/>
           </div>
           <div className={styles.messageMeta}><time>{formatClock(item.at(-1)!.createdAt)}</time></div>
@@ -812,7 +815,7 @@ export function LysnApp({ onClose, onNotice }: { onClose: () => void; onNotice?:
 
       {route === "myEdit" && <>{header("编辑个人资料", <button type="button" onClick={saveUser}>保存</button>)}<main className={styles.editScroll}><div className={styles.editCover}>{userDraft.cover ? <AssetImage src={userDraft.cover} className={styles.coverImage}/> : <div className={styles.coverFallback}/>}<button type="button" className={styles.editCoverButton} onClick={() => requestUpload("userCover")}><Camera size={18}/>更换背景</button><button type="button" className={styles.editAvatarButton} onClick={() => requestUpload("userAvatar")}><Avatar src={userDraft.avatar} name={userDraft.name} className={styles.editAvatar}/><Camera size={17}/></button></div><div className={styles.fields}>{editField("昵称", userDraft.name, value => setUserDraft(prev => ({ ...prev, name: value })))}{editField("生日（可选，例：2001-07-17）", userDraft.birthday, value => setUserDraft(prev => ({ ...prev, birthday: value })))}{editField("性别（可选）", userDraft.gender, value => setUserDraft(prev => ({ ...prev, gender: value })))}<button type="button" className={styles.primaryButton} onClick={saveUser}>保存个人资料</button></div></main></>}
 
-      {route === "settings" && <>{header("设置")}<main className={styles.settingsScroll}><h3>基本信息</h3><button type="button" className={styles.settingRow} onClick={startUserEdit}><Avatar src={user.avatar} name={user.name}/><span>{user.name}</span><small>编辑个人资料</small><ChevronRight size={18}/></button><h3>通知与体验</h3><label className={styles.field}><span>泡泡新消息音效</span><input type="file" accept="audio/*" onChange={e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>8*1024*1024){onNotice?.("音频请控制在8MB以内");return;}const reader=new FileReader();reader.onload=()=>updateSetting({notificationSound:String(reader.result)});reader.readAsDataURL(file);e.target.value="";}}/></label>{state.settings.notificationSound&&<div className={styles.roomBackgroundActions}><button onClick={()=>void new Audio(state.settings.notificationSound).play().catch(()=>{})}>试听</button><button onClick={()=>updateSetting({notificationSound:""})}>清除音效</button></div>}{settingsSwitch("Lysn 新消息通知", state.settings.notificationsEnabled, value => updateSetting({ notificationsEnabled: value }))}{settingsSwitch("艺人自主发消息", state.settings.autonomousMessages, value => updateSetting({ autonomousMessages: value }), "关闭后只在点发送时尝试生成新消息")}{settingsSwitch("加深拟真", state.settings.deepRealism, value => updateSetting({ deepRealism: value }), "每次艺人回复后或一天后可再发三条；字数随订阅天数增加")}{settingsSwitch("测试模式", state.settings.testMode === true, value => updateSetting({ testMode: value }), "打开后优先执行明确的发照片、语音和引用请求；默认关闭")}
+      {route === "settings" && <>{header("设置")}<main className={styles.settingsScroll}><h3>基本信息</h3><button type="button" className={styles.settingRow} onClick={startUserEdit}><Avatar src={user.avatar} name={user.name}/><span>{user.name}</span><small>编辑个人资料</small><ChevronRight size={18}/></button><h3>通知与体验</h3>{settingsSwitch("新消息声音", state.settings.notificationSoundEnabled !== false, value => updateSetting({ notificationSoundEnabled: value }), "关闭后保留新消息通知，只关闭声音")}<AudioSourcePicker label="泡泡新消息音效" value={state.settings.notificationSound || DEFAULT_LYSN_SOUND} defaultValue={DEFAULT_LYSN_SOUND} onChange={notificationSound=>updateSetting({notificationSound})} onNotice={onNotice} defaultHint="自定义音效优先；恢复默认后使用内置 LYSN 提示音。"/>{settingsSwitch("Lysn 新消息通知", state.settings.notificationsEnabled, value => updateSetting({ notificationsEnabled: value }))}{settingsSwitch("艺人自主发消息", state.settings.autonomousMessages, value => updateSetting({ autonomousMessages: value }), "关闭后只在点发送时尝试生成新消息")}{settingsSwitch("加深拟真", state.settings.deepRealism, value => updateSetting({ deepRealism: value }), "每次艺人回复后或一天后可再发三条；字数随订阅天数增加")}{settingsSwitch("测试模式", state.settings.testMode === true, value => updateSetting({ testMode: value }), "打开后优先执行明确的发照片、语音和引用请求；默认关闭")}
         <h3>翻译显示</h3>{([ ["fold", "折叠翻译"], ["replace", "覆盖原文"] ] as const).map(([value, label]) => <button type="button" className={styles.settingRow} key={value} onClick={() => updateSetting({ translationMode: value })}><span>{label}</span>{state.settings.translationMode === value && <Check size={20} className={styles.selectedCheck}/>}</button>)}
 
       </main></>}
@@ -840,48 +843,101 @@ function PhotoStack({ rows, onOpen, onEdit }: { rows: LysnMessage[]; onOpen: (ur
   const [active, setActive] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [dragX, setDragX] = useState(0);
-  const [direction, setDirection] = useState<1 | -1>(1);
-  const [flipping, setFlipping] = useState<1 | -1 | null>(null);
-  const startX = useRef<number | null>(null);
-  const startY = useRef<number | null>(null);
-  const flipTimer = useRef<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [settling, setSettling] = useState(false);
+  const pointer = useRef<{ id: number; x: number; y: number } | null>(null);
+  const settleTimer = useRef<number | null>(null);
   const holdTimer = useRef<number | null>(null);
   const longPressed = useRef(false);
-  useEffect(() => () => { if (flipTimer.current !== null) window.clearTimeout(flipTimer.current); if (holdTimer.current !== null) window.clearTimeout(holdTimer.current); }, []);
-  const canFlip = (nextDirection: 1 | -1) => active + nextDirection >= 0 && active + nextDirection < rows.length;
-  const flip = (nextDirection: 1 | -1) => {
-    if (flipping || !canFlip(nextDirection)) { setDragX(0); return; }
-    setDirection(nextDirection);
-    setFlipping(nextDirection);
-    setDragX(nextDirection === 1 ? -150 : 150);
-    flipTimer.current = window.setTimeout(() => {
-      setActive(index => index + nextDirection);
-      setDragX(0);
-      setFlipping(null);
-      flipTimer.current = null;
-    }, 230);
+  const suppressClick = useRef(false);
+  const mine = rows[0]?.sender === 'fan';
+  useEffect(() => () => {
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+  }, []);
+  const current = Math.max(0, Math.min(active, rows.length - 1));
+  const canFlip = (step: number) => current + step >= 0 && current + step < rows.length;
+  const flip = (step: -1 | 1) => {
+    if (settling || !canFlip(step)) { setDragX(0); return; }
+    setSettling(true);
+    setActive(index => Math.max(0, Math.min(rows.length - 1, index + step)));
+    setDragX(0);
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => { setSettling(false); settleTimer.current = null; }, 410);
   };
-  if (expanded) return <div className={styles.photoExpanded}><div className={styles.photoExpandedGrid}>{rows.map(row => <button type="button" key={row.id} onClick={() => row.imageUrl ? onOpen(row.imageUrl) : onEdit(row)} onContextMenu={e => { e.preventDefault(); onEdit(row); }} aria-label={`查看照片 ${rows.indexOf(row) + 1}`}>{row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}</button>)}</div><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(false)}>收起照片</button></div>;
-  return <div className={styles.stackWrap}><div className={styles.photoDeck} role="group" aria-label={`${rows.length} 张照片，左右滑动翻页`}>
-    {rows.map((_, depth) => {
-      const index = active + depth * direction;
-      if (index < 0 || index >= rows.length) return null;
-      const row = rows[index];
-      const front = depth === 0;
-      const moveX = front ? dragX : flipping && depth === 1 ? 0 : depth * 6;
-      const moveY = front ? 0 : flipping && depth === 1 ? 0 : depth * 5;
-      const angle = front ? dragX / 15 : flipping && depth === 1 ? 0 : depth * 3;
-      return <button type="button" key={row.id} tabIndex={front ? 0 : -1} aria-hidden={!front} aria-label={`第 ${index + 1} 张，共 ${rows.length} 张；轻点或滑动翻页`} className={styles.photoCard} style={{ zIndex: rows.length - depth, transform: `translate(${moveX}px,${moveY}px) rotate(${angle}deg)`, transition: front && startX.current !== null && !flipping ? "none" : undefined, pointerEvents: front ? "auto" : "none" }}
-        onDragStart={e => e.preventDefault()}
-        onContextMenu={front ? e => { e.preventDefault(); onEdit(row); } : undefined}
-        onPointerDown={front ? e => { if (flipping) return; startX.current = e.clientX; startY.current = e.clientY; longPressed.current = false; if (holdTimer.current !== null) window.clearTimeout(holdTimer.current); holdTimer.current = window.setTimeout(() => { longPressed.current = true; startX.current = null; onEdit(row); holdTimer.current = null; }, 520); e.currentTarget.setPointerCapture(e.pointerId); } : undefined}
-        onPointerMove={front ? e => { if (startX.current === null || flipping) return; const delta = Math.max(-135, Math.min(135, e.clientX - startX.current)); const vertical = Math.abs(e.clientY - (startY.current ?? e.clientY)); if ((Math.abs(delta) > 8 || vertical > 8) && holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } if (vertical > Math.abs(delta)) { setDragX(0); return; } const nextDirection = delta < 0 ? 1 : -1; setDragX(canFlip(nextDirection) ? delta : 0); if (Math.abs(delta) > 8 && canFlip(nextDirection)) setDirection(nextDirection); } : undefined}
-        onPointerUp={front ? e => { if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } if (longPressed.current) { longPressed.current = false; return; } if (startX.current === null) return; const delta = e.clientX - startX.current; const vertical = Math.abs(e.clientY - (startY.current ?? e.clientY)); startX.current = null; startY.current = null; if (vertical > 8 && vertical > Math.abs(delta)) { setDragX(0); return; } if (Math.abs(delta) > 28) flip(delta < 0 ? 1 : -1); else { setDragX(0); if (Math.abs(delta) < 8) row.imageUrl ? flip(1) : onEdit(row); } } : undefined}
-        onPointerCancel={front ? () => { if (holdTimer.current !== null) window.clearTimeout(holdTimer.current); holdTimer.current = null; startX.current = null; startY.current = null; setDragX(0); } : undefined}
-        onClick={front ? e => { if (e.detail === 0) flip(1); } : undefined}
-        onKeyDown={front ? e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); flip(e.key === "ArrowLeft" ? -1 : 1); } } : undefined}>
-        {row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}
-      </button>;
-    })}
-  </div><div className={styles.photoDeckControls}><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(true)}>展开全部 {rows.length}</button></div></div>;
+  const clearHold = () => { if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } };
+  const onDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (settling || pointer.current) return;
+    pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    longPressed.current = false;
+    suppressClick.current = false;
+    setDragging(true);
+    clearHold();
+    const selected = rows[current];
+    holdTimer.current = window.setTimeout(() => {
+      longPressed.current = true;
+      pointer.current = null;
+      setDragging(false);
+      onEdit(selected);
+      holdTimer.current = null;
+    }, 520);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = pointer.current;
+    if (!start || start.id !== event.pointerId) return;
+    const dx = Math.max(-160, Math.min(160, event.clientX - start.x));
+    const dy = Math.abs(event.clientY - start.y);
+    if (Math.abs(dx) > 8 || dy > 8) clearHold();
+    if (dy > Math.abs(dx)) { setDragX(0); return; }
+    setDragX(canFlip(dx < 0 ? 1 : -1) ? dx : dx * .28);
+  };
+  const onRelease = (event: ReactPointerEvent<HTMLDivElement>) => {
+    clearHold();
+    if (longPressed.current) { longPressed.current = false; suppressClick.current = true; return; }
+    const start = pointer.current;
+    if (!start || start.id !== event.pointerId) return;
+    pointer.current = null;
+    setDragging(false);
+    const dx = dragX;
+    const dy = Math.abs(event.clientY - start.y);
+    if (Math.abs(dx) > 8 || dy > 8) suppressClick.current = true;
+    if (dy > Math.abs(dx) && dy > 8) { setDragX(0); return; }
+    if (dx <= -PHOTO_DECK_THRESHOLD && canFlip(1)) flip(1);
+    else if (dx >= PHOTO_DECK_THRESHOLD && canFlip(-1)) flip(-1);
+    else {
+      setDragX(0);
+      if (Math.abs(dx) < 8 && dy < 8) {
+        const selected = rows[current];
+        if (!selected.imageUrl) onEdit(selected);
+        else if (canFlip(1)) flip(1);
+        else onOpen(selected.imageUrl);
+      }
+    }
+  };
+  if (expanded) return <div className={`${styles.photoExpanded} ${mine ? "lysn-photo-expanded--mine" : "lysn-photo-expanded--artist"}`}>
+    <div className={styles.photoExpandedGrid}>{rows.map((row, index) => <button type="button" key={row.id}
+      onClick={() => row.imageUrl ? onOpen(row.imageUrl) : onEdit(row)}
+      onContextMenu={e => { e.preventDefault(); onEdit(row); }} aria-label={`查看照片 ${index + 1}`}>
+      {row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}
+    </button>)}</div><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(false)}>收起照片</button>
+  </div>;
+  return <div className={`${styles.stackWrap} ${mine ? styles.stackMine : ''}`}>
+    <div className={styles.photoDeck} role="group" tabIndex={0} aria-label={`${rows.length} 张照片，左右滑动翻页`}
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onRelease}
+      onPointerCancel={event => { if (pointer.current?.id === event.pointerId) { clearHold(); pointer.current = null; setDragging(false); setDragX(0); } }}
+      onClickCapture={event => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
+      onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); flip(event.key === 'ArrowLeft' ? -1 : 1); } }}>
+      {rows.map((row, index) => {
+        const front = current === index;
+        const motion = photoDeckLayer(index, current, rows.length, dragX);
+        return <div key={row.id} aria-hidden={!front} className={styles.photoCard}
+          style={{ ...motion, transition: dragging ? 'none' : undefined }}
+          onContextMenu={front ? event => { event.preventDefault(); onEdit(row); } : undefined}>
+          {row.imageUrl ? <AssetImage src={row.imageUrl}/> : <span className={styles.photoTextCard}><span className={styles.photoTextScroll}>{row.photoDescription || row.original}</span></span>}
+        </div>;
+      })}
+    </div>
+    <div className={styles.photoDeckControls}><button type="button" className={styles.photoViewAll} onClick={() => setExpanded(true)}>展开全部 {rows.length}</button></div>
+  </div>;
 }
