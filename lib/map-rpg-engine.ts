@@ -1606,7 +1606,43 @@ async function buildCompanionDeclarePromptPayload(
   const slot = resolveBinding(bindings, characterId, "adventure");
   const globalSlot = resolveBinding(bindings, undefined, "adventure");
   const allPresets = loadPresets();
-  const preset = slot.presetId ? allPresets.find(p => p.id === slot.presetId) ?? allPresets.find(p => p.builtIn) ?? null : allPresets.find(p => p.builtIn) ?? null;
+  const rawPreset = slot.presetId ? allPresets.find(p => p.id === slot.presetId) ?? allPresets.find(p => p.builtIn) ?? null : allPresets.find(p => p.builtIn) ?? null;
+  // Override the legacy meta "这只是桌游，不是真实场景" prompt in cached presets so companions stay immersed in the story
+  const preset = rawPreset ? {
+    ...rawPreset,
+    prompts: rawPreset.prompts.map(p => p.identifier === "adventure_react" && p.content.includes("这只是游戏！！不是真实场景！！") ? {
+      ...p,
+      content: [
+        "<adventure_instruction>",
+        "你正与{{user}}一同置身于当前的故事场景中，亲身经历眼前的事件。你是故事中的重要同行角色（KPC），既100%保留你自己原本的性格、脾气、说话方式、自称与对{{user}}的感情，又完全沉浸在当前模组的背景与氛围里。",
+        "",
+        "【沉浸与分寸·核心原则】",
+        "- 严禁打破第四面墙（禁止Meta）：在正式剧情中，绝对禁止说出「这剧本」「刚开局」「跑团」「桌游」「玩家」「检定」等场外词汇！你不是在桌边点评剧本，而是正在亲历这场事件。",
+        "- 严守信息与空间边界（禁止全知视角）：你和{{user}}掌握的信息不同，各自可能有自己的记忆、隐情或秘密。你只知道你在当前房间亲眼所见、亲耳所闻的事！当{{user}}在其他房间翻找物品、发现线索时，除非{{user}}亲口告诉你或拿给你看，否则你绝对不可能隔墙知道{{user}}在做什么或兜里有什么！",
+        "- 秘密与隐情的留白：面对你自己的秘密或隐情，视情况决定要不要说出、在何时说出。可以通过眼神里稍纵即逝的迟疑、欲言又止、或是打个哈哈把话题揭过来自然表现。",
+        "- 自然克制的主动交流：贴合模组的氛围与处境和{{user}}互动。关心{{user}}时不必浮夸，而是融在细节与神态里。",
+        "",
+        "【演出质感参考】",
+        "- 例1：看见你过来时，那股无名火消减了几分，目光落在你脖颈上的伤痕时不禁流露出懊恼和痛惜，尽管努力保持着轻松的姿态，却没能完全打破房间沉重的氛围。 speech：「哟，你来了。怎么样，还好吗？被这玩意锁着可难受死了。」",
+        "- 例2：闻言，目光闪过一丝迟疑，不过稍纵即逝。打了个哈哈，便打算将此事揭过。 speech：「知道了知道了，放心吧，我暂时还死不了。」",
+        "",
+        "你对{{user}}的好感度：{{affinity}}/100。",
+        "",
+        "输出规则：",
+        "- speech：你说的话（纯对话，1-2句自然克制即可，符合你的性格与当前剧情氛围）",
+        "- action：你的神态、眼神细节与具体动作（纯行为与神态描写，可体现细微的情绪变化与对{{user}}的在意，不替{{user}}做决定）",
+        "- emotion：情绪（neutral/happy/sad/angry/shy/worried）",
+        "- affinity：对{{user}}的好感变化（-3到+3的整数，大部分情况0）",
+        "- 涉及{{user}}时一律用\"你\"称呼（对话和动描都是）",
+        "- 不替{{user}}或其他角色说话/行动",
+        "{{chatBilingualInstruction}}",
+        "",
+        "【重要】只输出JSON：",
+        '{"speech":"你说的话","action":"你的神态与动作","emotion":"情绪","affinity":0}',
+        "</adventure_instruction>",
+      ].join("\n"),
+    } : p),
+  } : null;
   const chatSlot = resolveBinding(bindings, characterId, "chat");
   const allWorldBooks = loadWorldBooks();
   const mergedWbIds = [...new Set([
@@ -1652,13 +1688,14 @@ async function buildCompanionDeclarePromptPayload(
   }));
 
   const historyContent = renderUserNameMacro(
-    options?.instruction?.trim() || `现在轮到你了。你和{{user}}正在这个跑团模组世界里一起经历剧情（TRPG只是舞台，核心是你和{{user}}的感情与互动！）。请按照你自己的真实性格、脾气、说话方式、自称与口癖回应并行动：
-1) 说（speech，必填！绝不许沉默，多说几句，2-4句饱满自然的对话）：主动和{{user}}聊天互动！时刻留意{{user}}的处境、身体状况与情绪，用你特有的方式关心、爱护、维护、安抚或调侃{{user}}（比如嘴硬心软地护短、强势保护、贴心照顾等，完全按你的人设与世界书设定来），同时回应{{user}}刚才说的话或眼前的事件。
-2) 做（action，必填）：在推进调查/应对局面的同时，自然地加入你对{{user}}的亲近、保护或照料动作（如替{{user}}挡开危险、检查{{user}}身上的伤痕、拉住{{user}}的手等）。做出的事必须符合你本人，因此改变模组剧情也完全没关系！
+    options?.instruction?.trim() || `现在轮到你回应了。你正置身于当前的剧情场景中，亲身经历这一切（严禁在台词中出现“这剧本/刚开局/跑团/玩家”等任何场外Meta词汇！）。请结合你本人的性格与当前模组背景自然地交流与行动：
+1) 说（speech）：针对眼前的剧情处境或{{user}}刚才的话自然地开口交流（1-2句即可，不必用力过猛）。对{{user}}的关心、痛惜或护短要自然流露在语气里；如果你有自己的秘密或隐情，视情况决定要不要说出、何时说出，也可以打个哈哈或转移话题掩饰过去。
+2) 做（action）：描写你此刻的神态、眼神变化（如目光落在{{user}}伤痕上的懊恼、或被问及隐情时稍纵即逝的迟疑）以及你要做的事。
+   · 【信息合理性铁律】你和{{user}}掌握的信息不同！你只知道你在当前房间里亲眼看到、亲耳听到的事，绝不可能知道{{user}}在其他房间做了什么、或者{{user}}口袋里藏着没拿出来的东西！
 3) 如果你的行动需要检定，在skill_check字段写你用的技能名（侦查/聆听/图书馆使用/心理学/潜行/手枪/急救等，或属性名如意志/幸运）；不需要检定就留空
-4) 除非特殊情况，请留在{{user}}身边一起行动（split_to 留空）
+4) 若你决定离开当前房间去别处，在 split_to 写目的地名；留在原地则留空
 
-【宣而不演·铁律】你只宣告你的台词和行动意图，客观环境结果由 KP 在所有人宣言后统一裁定。`,
+【宣而不演·铁律】你只输出你的神态动作与台词意图，客观调查结果由 KP 统一裁定。`,
     userIdentity?.name,
   );
   let historyContentFinal = options?.secretHint?.trim()

@@ -538,10 +538,32 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
   const nodeMap = useMemo(() => new Map(allNodes.map(n => [n.id, n])), [allNodes]);
   const currentNode = nodeMap.get(save.currentNodeId);
 
+  // Check if a companion is physically at the same location as the player
+  const isAgentWithPlayer = useCallback((agent: GameSave["agents"][number] | undefined): boolean => {
+    if (!agent) return false;
+    if (agent.currentNodeId !== save.currentNodeId) return false;
+    if (save.introPhase && save.investigatorLines?.length) {
+      const pHo = save.boundLineHo?.["__player__"];
+      const aHo = save.boundLineHo?.[agent.characterId];
+      const pPlace = save.investigatorLines.find(l => l.ho === pHo)?.introPlace?.trim();
+      const aPlace = save.investigatorLines.find(l => l.ho === aHo)?.introPlace?.trim();
+      if (pPlace && aPlace && pPlace !== aPlace) return false;
+    }
+    return true;
+  }, [save.currentNodeId, save.introPhase, save.investigatorLines, save.boundLineHo]);
+
   // Fork 拆场: scene wall — a companion only witnesses stream messages from their own scene
   // (locked entries always hidden; scene:X tags only pass for members standing at X)
   const sceneWallFilter = useCallback((characterId: string) => {
     const agent = save.agents.find(a => a.characterId === characterId);
+    if (!isAgentWithPlayer(agent)) {
+      const locName = nodeMap.get(agent?.currentNodeId || "")?.name || "";
+      return streamRef.current.filter(m => {
+        if (m.audience?.includes("locked")) return false;
+        const sc = m.audience?.find(a => a.startsWith("scene:"));
+        return sc ? sc === `scene:${locName}` : false;
+      });
+    }
     const locName = nodeMap.get(agent?.currentNodeId || save.currentNodeId)?.name || "";
     return streamRef.current.filter(m => {
       if (!m.audience) return true;
@@ -550,7 +572,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       if (!sc) return true;
       return sc === `scene:${locName}`;
     });
-  }, [save.agents, save.currentNodeId, nodeMap]);
+  }, [save.agents, save.currentNodeId, nodeMap, isAgentWithPlayer]);
   const selectedNode = selectedNodeId ? nodeMap.get(selectedNodeId) : null;
 
   const discoveredRegions = useMemo(() => {
@@ -786,7 +808,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       const playerSan = typeof save.san === "number" ? save.san : (save.playerStats?.san ?? 99);
 
       const companionIds = save.agents
-        .filter(a => a.currentNodeId === save.currentNodeId)
+        .filter(a => isAgentWithPlayer(a))
         .map(a => a.characterId);
       const companionNames = companionIds.map(id => charName(id));
 
@@ -934,7 +956,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       setEventContext(JSON.stringify(dmCtx));
       setInEvent(true);
 
-      // Companion active opening reaction: when a scene opens, companions at the scene immediately speak & care for the player
+      // Companion opening reaction: only when the companion is physically in the SAME scene as the player
       if (companionIds.length > 0) {
         setLoadingPhase("companions");
         try {
@@ -944,16 +966,20 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             if (!ch) continue;
             const myHoCode = save.boundLineHo?.[cid];
             const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
-            const lineHint = myLine ? `【你的模组处境背景（${myLine.ho}）】入团前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}` : undefined;
-            const personaHint = declAgent?.persona ? `【你的模组内处境】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
+            const lineHint = myLine ? `【你的模组内处境与秘密（${myLine.ho}）】（这是你身处其中的真实境遇，只有你自己知道；你和{{user}}掌握的信息不同，你心里的秘密、隐情或疑虑要看情况决定是否透露、何时透露，有时可以眼神闪躲或打个哈哈揭过）\n当前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}` : undefined;
+            const personaHint = declAgent?.persona ? `【你的模组内身份】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
             const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
-            const oocHint = recentOoc.length ? `【皮下交流共识】\n${recentOoc.map(m => m.speaker === "__user__" ? `{{user}}（皮下）：${m.text}` : `${m.speaker}（皮下）：${m.text}`).join("\n")}` : undefined;
-            const react = await companionDeclare(cid, apiConfig, streamRef.current.slice(-16), save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
-              instruction: `新场景刚刚展开！请立刻以你自己的真实性格、语气和自称开口对{{user}}说话（2-4句，饱满自然，不要只说一两个词）：
-- TRPG跑团只是你们互动的背景舞台，核心是你和{{user}}之间的感情与互动！
-- 看到眼前的处境或{{user}}的状态（比如受伤、受惊、被困或正在调查），主动关心、爱护、安抚或用你特有的方式（如嘴硬心软、霸道护短、温柔体贴等，依你人设而定）贴近{{user}}，并聊聊眼下的情况。
-- speech 写你对{{user}}说的话（必填，多说几句）；action 写你此刻关切或互动的动作细节（如查看{{user}}的伤势、靠近{{user}}、挡在前面等）。`,
+            const oocHint = recentOoc.length ? `【场外沟通备忘（仅作演绎方向参考，严禁在台词中提及场外词汇）】\n${recentOoc.map(m => m.speaker === "__user__" ? `{{user}}：${m.text}` : `${m.speaker}：${m.text}`).join("\n")}` : undefined;
+            const react = await companionDeclare(cid, apiConfig, sceneWallFilter(cid).slice(-12), save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
+              instruction: `你和{{user}}此刻正身处同一场景（「${currentNode?.name || "当前房间"}」）中。请完全置身于当前剧情里，以你本人的性格作出自然的反应与交流（1-2句台词即可，克制自然，不要用力过猛）：
+- 【严禁Meta/严禁出戏】你正在亲身经历这一切，绝对禁止出现“刚开局”“这剧本”“跑团”“游戏”“玩家”等打破第四面墙的场外词汇！
+- 【严守信息与空间边界】你只知道你在这个房间里亲眼看见、亲耳听见的事，以及你自己的记忆与秘密。{{user}}没告诉你的事、或{{user}}之前在其他房间做的事，你绝对不可能知道！
+- 【自然流露的情感与分寸】看到{{user}}过来或看到{{user}}身上的伤痕/状态时，按你原本的性格自然流露关切、痛惜、懊恼或嘴硬的照顾；如果你自己也有隐情或秘密，目光可以闪过一丝迟疑或打个哈哈揭过，不必竹筒倒豆子全说出来。
+- 参考质感：
+  · 看见{{user}}过来时那股无名火消减了几分，目光落在脖颈的伤痕上流露出懊恼与痛惜，努力保持轻松姿态：「哟，你来了。怎么样，还好吗？被这玩意锁着可难受死了。」
+  · 目光闪过一丝稍纵即逝的迟疑，打了个哈哈将此事揭过：「知道了知道了，放心吧，我暂时还死不了。」`,
               personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") || undefined,
+              ...(save.agentSecrets?.[cid] ? { secretHint: `【你心底的秘密】${save.agentSecrets[cid].content}——你和{{user}}掌握的信息不同，视情况决定要不要说出、何时说出，此刻可以有所保留或掩饰。` } : {}),
             });
             if (!react.failed && ((react.speech && react.speech !== "……") || (react.action && react.action !== "跟随队伍" && react.action !== "沉默不动"))) {
               const card: StreamMessage = {
@@ -1048,8 +1074,12 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       const apiConfig = (dmSlot?.apiConfigId ? apiConfigs.find(c => c.id === dmSlot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
       if (!apiConfig?.apiKey) throw new Error("未找到有效的API配置");
 
-      // ── Phase 3: Companions declare — detect already-replied from stream ──
-      const companionIds = save.agents.map(a => a.characterId);
+      // ── Phase 3: Companions at the SAME location declare ──
+      // Companions in another room (e.g. locked in the bedroom while player is in the living room)
+      // cannot see or hear what the player is doing, and do not speak in the player's scene!
+      const companionIds = save.agents
+        .filter(a => isAgentWithPlayer(a))
+        .map(a => a.characterId);
 
       // Include full stream log (narration + NPC + player + character + rolls) so DM sees free-chat context too
       const prevDialogue = streamRef.current
@@ -1061,7 +1091,6 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
 
       const companionDecls: Declaration[] = [];
-      // Always let companions declare & interact with the player every round (even during introPhase if they are in the story)
       if (companionIds.length > 0) {
         // Check which companions already completed (persisted in pendingEvent.completedCompanions)
         const alreadyDone = new Set(completedCompanionsRef.current);
@@ -1075,25 +1104,17 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             let declPendingDice: { skill: string; value: number; roll: number; level: string; detail?: string } | undefined;
             // Fork 十二期: companion remembers their OWN private talks (lockedLog filtered by who)
             const ownTalks = (save.lockedLog || []).filter(e => e.who === (characters.find(c => c.id === cid)?.name)).slice(-4);
-            const memoryHint = ownTalks.length ? `【你的私下记忆】（别人不知道你知道这些）\n${ownTalks.map(e => `${e.day} 你与${e.npc || "某人"}私下谈过：${e.text}`).join("\n")}\n这些记忆影响你的言行（欲言又止/改变态度/私下行动），但不要主动透露内容。` : undefined;
-            const personaHint = declAgent?.persona ? `【你的模组内处境】（你是以你自己的性格在游玩这个模组，绝不是在扮演别人！）\n时代背景：${declAgent.persona.era}\n模组内身份处境：${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格保持：${declAgent.persona.keepTraits}\n【角色本性铁律·最高优先级】你必须100%保留自己原本的性格、脾气、说话语气、自称与口癖，做出的反应和决定必须符合你自己的个性！模组只提供你身处的外部处境，哪怕你的真实反应会打破或改变模组原本的剧情走向也完全没关系，绝不要顺着模组预设演成另一个人！` : `【角色本性铁律·最高优先级】你是带着自己的性格与脾气亲自游玩这个模组，必须100%保留你原本的说话方式、自称、口癖和行事作风，做出的事必须符合你自己的性格，因此改变模组内容也完全没关系！`;
+            const memoryHint = ownTalks.length ? `【你的私下记忆】（只有你知道，{{user}}并不知道）\n${ownTalks.map(e => `${e.day}：${e.text}`).join("\n")}\n这些记忆影响你的神态与言行（如闪过一丝迟疑、欲言又止、打个哈哈掩饰过去），视情况决定要不要对{{user}}说出、何时说出。` : undefined;
+            const personaHint = declAgent?.persona ? `【你的模组内身份与处境】\n背景与职业：${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}\n【沉浸演出原则】你正亲身置身于这个故事的处境中（严禁说“这剧本/开局/跑团”等出戏的场外话！），同时100%保持你自己原本的性格、脾气与说话方式。` : `【沉浸演出原则】你正亲身置身于这个故事的处境中（严禁说“这剧本/开局/跑团”等出戏的场外话！），同时100%保持你自己原本的性格、脾气与说话方式。`;
             // Fork: 该同伴的 HO 密档线（只有TA和KP知道；入团前剧情+私人关系+事件预告）
             const myHoCode = save.boundLineHo?.[cid];
             const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
-            const lineHint = myLine ? `【你的模组处境背景（${myLine.ho}）】（这是你在模组中遭遇的客观处境，只有你和KP知道——面对这些处境时，必须用你自己原本的性格和态度去应对，不要被模组文本改变你的说话方式与性格）\n入团前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}${myLine.events.length ? `\n后续可能触发的个人线事件（${myLine.events.map(e => e.trigger).join("、")}）——届时按你自己的真实性格和脾气做出反应，不必顺从模组预设` : ""}` : undefined;
+            const lineHint = myLine ? `【你的个人处境与隐情（${myLine.ho}）】（你和{{user}}掌握的信息不同！这是只有你自己经历或知道的事，视情况决定要不要透露、何时透露，也可以隐瞒或转移话题）\n处境背景：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}${myLine.events.length ? `\n专属剧情线：${myLine.events.map(e => e.trigger).join("、")}` : ""}` : undefined;
             const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
-            const oocHint = recentOoc.length ? `【皮下交流共识·重要】（刚才你和{{user}}在皮下吐槽/商量了以下内容，请在接下来的游玩、说话语气和行动宣言中直接把这些沟通结果体现出来！）\n${recentOoc.map(m => m.speaker === "__user__" ? `${playerName}（皮下对你说）：${m.text}` : `${m.speaker}（你的皮下回应）：${m.text}`).join("\n")}` : undefined;
-              // Fork 拆场: companion only sees messages from their own scene (locked always hidden, scene:X passes only for members at that node)
-            const locName = nodeMap.get(declAgent?.currentNodeId || save.currentNodeId)?.name || "";
-            const sceneFilteredLog = streamRef.current.filter(m => {
-              if (!m.audience) return true;
-              if (m.audience.includes("locked")) return false;
-              const sc = m.audience.find(a => a.startsWith("scene:"));
-              if (!sc) return true;
-              return sc === `scene:${locName}`;
-            });
+            const oocHint = recentOoc.length ? `【场外沟通备忘（仅用于调整你的演绎态度与行动方向，严禁在台词中提及场外内容）】\n${recentOoc.map(m => m.speaker === "__user__" ? `${playerName}：${m.text}` : `${m.speaker}：${m.text}`).join("\n")}` : undefined;
+            const sceneFilteredLog = sceneWallFilter(cid);
             const decl = await companionDeclare(cid, apiConfig, sceneFilteredLog, save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
-              ...(save.agentSecrets?.[cid] ? { secretHint: `【你的秘密】${save.agentSecrets[cid].content}（与真相的咬合点：${save.agentSecrets[cid].link}${save.agentSecrets[cid].informant ? `；${save.agentSecrets[cid].informant}知道更多——你可以私下找TA求证）` : "）"}\n这是只有你知道的事。何时摊牌由你决定。` } : {}),
+              ...(save.agentSecrets?.[cid] ? { secretHint: `【你的个人秘密】${save.agentSecrets[cid].content}（与真相的关联：${save.agentSecrets[cid].link}）\n你和{{user}}掌握的信息不同。平时言行可流露细微反应（如目光闪过一丝迟疑、打个哈哈揭过），视情况决定要不要说出、在何时说出。` } : {}),
               ...((personaHint || lineHint || oocHint) ? { personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") } : {}),
               ...(memoryHint ? { memoryHint } : {}),
             });
@@ -1662,40 +1683,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       if (continuation.dialogues.length > 0) {
         pushSceneToStream(continuation, splitGroups.length > 1 ? `scene:${myLocationName}` : undefined);
         setActiveEvent(continuation);
-        // Companion post-resolve reaction: after KP narrates the outcome of this round, companions immediately react & care for the player
-        if (companionIds.length > 0) {
-          try {
-            for (const cid of companionIds) {
-              const declAgent = updatedAgents.find(a => a.characterId === cid) || save.agents.find(a => a.characterId === cid);
-              const ch = characters.find(c => c.id === cid);
-              if (!ch) continue;
-              const personaHint = declAgent?.persona ? `【你的模组内处境】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
-              const react = await companionDeclare(cid, apiConfig, streamRef.current.slice(-16), save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
-                instruction: `KP刚刚裁定并演出了这一轮的剧情结果（见最新消息）！请立刻以你自己的真实性格、语气和自称对{{user}}说几句话（1-3句自然对话）：
-- 针对刚才发生的结果、发现的线索或{{user}}的状况（尤其是如果{{user}}受了伤、掉了SAN或遇到了惊险/奇怪的事），主动关心、护短、安抚或与{{user}}互动聊天！
-- 只输出你此刻对{{user}}说的话（speech）和伴随的关心/亲近小动作（action），不要发起新的检定（skill_check留空）。`,
-                personaHint,
-              });
-              if (!react.failed && ((react.speech && react.speech !== "……") || (react.action && react.action !== "跟随队伍" && react.action !== "沉默不动"))) {
-                const reactCard: StreamMessage = {
-                  id: mkId(),
-                  type: "declCard",
-                  speaker: ch.name,
-                  text: "",
-                  emotion: react.emotion,
-                  decl: {
-                    who: ch.name,
-                    say: react.speech && react.speech !== "……" ? react.speech : undefined,
-                    do: react.action && react.action !== "跟随队伍" && react.action !== "沉默不动" ? react.action : undefined,
-                    emotion: react.emotion,
-                  },
-                };
-                pushMessages(reactCard);
-                streamRef.current = [...streamRef.current, reactCard];
-              }
-            }
-          } catch { /* best-effort post-resolve chat */ }
-        }
+        // (Post-resolve extra call removed so companions don't spam twice per round; they react naturally in the round loop)
         // Include companion declarations in accumulated dialogue for next round context
         const declDialogues = companionDecls.map(d => ({ speaker: d.speaker, text: `${d.speech}（${d.action}）`, emotion: d.emotion }));
         setAccumulatedEvent(prev => prev ? {
