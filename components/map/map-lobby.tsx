@@ -229,8 +229,7 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result || "");
-      // Cap at ~12000 chars to keep the prompt within context limits
-      setModuleText(text.length > 12000 ? text.slice(0, 12000) : text);
+      setModuleText(text);
       setModuleName(file.name);
       setModuleLoading(false);
     };
@@ -827,7 +826,7 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
               </div>
               {moduleText && (
                 <div style={{ fontSize: "calc(10px*var(--app-text-scale,1))", color: "rgba(255,255,255,0.25)", marginTop: 5, lineHeight: 1.5 }}>
-                  模组将作为世界生成的背景设定：NPC、怪物、地点、主线会优先取自模组内容（超长文件自动截取前 12000 字，建议大模组自行切割）
+                  模组将完整读取作为世界生成的背景设定：NPC、怪物、地点、主线会优先取自模组内容
                 </div>
               )}
             </div>

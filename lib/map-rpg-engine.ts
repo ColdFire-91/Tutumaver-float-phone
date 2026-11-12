@@ -386,7 +386,7 @@ async function generateWorldSkeletonStaged(
     ? "【模组模式】通读模组后按模组实际地点数量自由决定区域数（建议 4-8 个，模组地点多就多、少就少，不追求整齐），每个地点都有出处；"
     : `区域 ${regionCount} 个；`;
   let skelPrompt = v(SKELETON_PROMPT).replace("{{region_rule}}", regionRule);
-  const user1 = `世界描述：${userDescription}${moduleTextRaw ? `\n\n# 模组背景（地点与区域必须取自此模组）\n${moduleTextRaw.slice(0, 12000)}` : ""}\n\n基调：${vars?.tone || "自由发挥"} · 主线倾向：${vars?.main_quest_type || "自由发挥"} · 难度：${vars?.difficulty || "适中"}`;
+  const user1 = `世界描述：${userDescription}${moduleTextRaw ? `\n\n# 模组背景（地点与区域必须取自此模组）\n${moduleTextRaw}` : ""}\n\n基调：${vars?.tone || "自由发挥"} · 主线倾向：${vars?.main_quest_type || "自由发挥"} · 难度：${vars?.difficulty || "适中"}`;
   let skelText = await simpleLLMCallWithContinue(apiConfig, [
     { role: "system", content: skelPrompt },
     { role: "user", content: user1 },
@@ -447,7 +447,7 @@ async function generateWorldSkeletonStaged(
       ? "模组模式：NPC/怪物数量由你按模组本区域的实际人物决定（模组此处有谁就放谁，没有就留空，0个也正常）——不要为了凑数编造模组外NPC"
       : `本区域NPC+怪物总数约 ${npcBudget} 个（0也合法——无人荒野是常态）`;
     const fillPrompt = REGION_FILL_PROMPT.replace("{区域头}", regionHead).replace("{npc_rule}", npcRule);
-    const user2 = `世界：${skeletonParsed.world.name}——${skeletonParsed.world.lore}\n${regionHead}\n\n本区域既定节点（严格用这些名字）：\n${nodeList}\n\n主城/城镇：${["主城", "城镇"].includes(r.type) ? "是（需要主城NPC）" : "否"}${moduleTextRaw ? `\n\n# 模组背景（NPC/怪物/任务必须取自此模组）\n${moduleTextRaw.slice(0, 10000)}` : ""}`;
+    const user2 = `世界：${skeletonParsed.world.name}——${skeletonParsed.world.lore}\n${regionHead}\n\n本区域既定节点（严格用这些名字）：\n${nodeList}\n\n主城/城镇：${["主城", "城镇"].includes(r.type) ? "是（需要主城NPC）" : "否"}${moduleTextRaw ? `\n\n# 模组背景（NPC/怪物/任务必须取自此模组）\n${moduleTextRaw}` : ""}`;
     try {
       const text = await simpleLLMCallWithContinue(apiConfig, [
         { role: "system", content: fillPrompt },
@@ -488,7 +488,7 @@ async function generateWorldSkeletonStaged(
 ${SECRETS_PROMPT.replace("{secret_count}", "4")}
 
 NPC列表（秘密与知情者只能用这些名字）：${regions.flatMap(rg => [rg.l1_npc?.name, ...rg.l2_nodes.map(n => n.npc?.name), ...rg.l3_nodes.map(n => n.npc?.name)].filter(Boolean) as string[]).join("、")}
-节点列表（主线阶段地点只能用这些名字）：${regions.flatMap(rg => [rg.l1_name_cn, ...rg.l2_nodes.map(n => n.name), ...rg.l3_nodes.map(n => n.name)]).join("、")}${moduleTextRaw ? `\n\n# 模组背景（主线/密档/秘密优先取自此模组）\n${moduleTextRaw.slice(0, 8000)}` : ""}`;
+节点列表（主线阶段地点只能用这些名字）：${regions.flatMap(rg => [rg.l1_name_cn, ...rg.l2_nodes.map(n => n.name), ...rg.l3_nodes.map(n => n.name)]).join("、")}${moduleTextRaw ? `\n\n# 模组背景（主线/密档/秘密优先取自此模组）\n${moduleTextRaw}` : ""}`;
   const mqText = await simpleLLMCallWithContinue(apiConfig, [
     { role: "system", content: mqPrompt },
     { role: "user", content: `世界：${skeletonParsed.world.name}——${skeletonParsed.world.lore}\n基调：${vars?.tone || "自由发挥"} · 主线倾向：${vars?.main_quest_type || "自由发挥"}` },
