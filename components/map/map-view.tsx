@@ -12,7 +12,7 @@ import {
 import { ADVENTURE_THEMES } from "./map-text-stream";
 import { loadCharacters } from "@/lib/character-storage";
 import { loadApiConfigs, loadBindingConfig, resolveBinding, resolveUserIdentity, resolveAuxiliaryApiConfig } from "@/lib/settings-storage";
-import { expandEvent, companionDeclare, resolveRound, rollD100, resolveCheckStat, ROLL_LABELS, formatGameTime, advanceTime, pickEncounter, shouldTriggerEncounter, setDMDebugCallback, shouldAutoSummarize, generateAdventureSummary, generateEnding, generateAfterTalk, type EndingResult, DEFAULT_DM_ENDING_PROMPT } from "@/lib/map-rpg-engine";
+import { expandEvent, companionDeclare, resolveRound, rollD100, resolveCheckStat, ROLL_LABELS, formatGameTime, advanceTime, pickEncounter, shouldTriggerEncounter, setDMDebugCallback, shouldAutoSummarize, generateAdventureSummary, generateEnding, generateAfterTalk, buildCompanionPersonaAndWorldBookSummary, type EndingResult, DEFAULT_DM_ENDING_PROMPT } from "@/lib/map-rpg-engine";
 import { skillCheckValue, resolveAttack, rollExpr, dbFromStats, findWeaponMention, LEVEL_LABEL, sanityLossVerdict, rollTemporaryMadness, buildInitiative, makeHostile, canSpendLuck, rollD100WithDice, SKILL_BASE_6, SKILL_BASE_7, type RollLevel, type HostileCombatant } from "@/lib/coc-sheet";
 import { STAT_LABELS, ALL_STATS, type StageAsset } from "@/lib/map-types";
 import { getAssetUrl, buildAssetManifest, registerAssetFiles, deleteAssetBlob } from "@/lib/stage-assets";
@@ -241,14 +241,44 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     const map: Record<string, string> = {};
     // Player avatar
     const playerName = userIdentity?.name || "你";
-    if (userIdentity?.avatarUrl) map[playerName] = userIdentity.avatarUrl;
-    // Companion avatars
+    if (userIdentity?.avatarUrl) {
+      map[playerName] = userIdentity.avatarUrl;
+      if (save.myPersona?.name) map[save.myPersona.name] = userIdentity.avatarUrl;
+    }
+    // Companion avatars (also register persona name & short aliases so avatar always resolves)
     for (const a of save.agents) {
       const ch = characters.find(c => c.id === a.characterId);
-      if (ch?.avatar) map[ch.name] = ch.avatar;
+      if (ch?.avatar) {
+        map[ch.name] = ch.avatar;
+        if (a.persona?.name) map[a.persona.name] = ch.avatar;
+        const firstToken = ch.name.split(/[\s·・（(]/)[0]?.trim();
+        if (firstToken && firstToken.length >= 2) map[firstToken] = ch.avatar;
+      }
     }
     return map;
-  }, [userIdentity, save.agents, characters]);
+  }, [userIdentity, save.agents, save.myPersona, characters]);
+
+  const resolveCompanionSpeaker = useCallback((rawSpeaker: string): { name: string; isCompanion: boolean } => {
+    const s = (rawSpeaker || "").trim();
+    if (!s) return { name: s, isCompanion: false };
+    for (const a of save.agents) {
+      const ch = characters.find(c => c.id === a.characterId);
+      if (!ch) continue;
+      const pName = a.persona?.name?.trim();
+      const firstToken = ch.name.split(/[\s·・（(]/)[0]?.trim();
+      if (
+        s === ch.name ||
+        (pName && s === pName) ||
+        s.includes(ch.name) ||
+        ch.name.includes(s) ||
+        (pName && (s.includes(pName) || pName.includes(s))) ||
+        (firstToken && firstToken.length >= 2 && s.includes(firstToken))
+      ) {
+        return { name: ch.name, isCompanion: true };
+      }
+    }
+    return { name: s, isCompanion: false };
+  }, [save.agents, characters]);
 
   // Fork 十期: stage assets — local mirror of world.assets (panel edits persist via saveMapWorld)
   const [assets, setAssets] = useState<StageAsset[]>(world.assets || []);
@@ -366,19 +396,21 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
           ].filter(Boolean).join("\n") : undefined;
           const compSlot = resolveBinding(bindings, a.characterId, "adventure");
           const compApiConfig = (compSlot?.apiConfigId ? apiConfigs.find(c => c.id === compSlot.apiConfigId) : null) || apiConfig;
-          const persona = await importInvestigator(name, ch?.personality || "", skeleton, save.agentSecrets?.[a.characterId], compApiConfig, compHoOcc, compHoFull, false);
+          const fullCharDesc = [ch?.persona, ch?.personality].filter(Boolean).join("\n");
+          const persona = await importInvestigator(name, fullCharDesc, skeleton, save.agentSecrets?.[a.characterId], compApiConfig, compHoOcc, compHoFull, false);
           if (!cancelled && persona) {
+            const fixedPersona = { ...persona, name };
             persistSave({
               ...saveRef.current,
-              agents: saveRef.current.agents.map(x => x.characterId === a.characterId ? { ...x, persona } : x),
+              agents: saveRef.current.agents.map(x => x.characterId === a.characterId ? { ...x, persona: fixedPersona } : x),
             });
-            pushMessages({ id: mkId(), type: "system", text: `📇 KP 把身份卡递给 ${name}——${persona.era} · ${persona.occupation}` });
-            // Fork: the companion reacts in their own voice — "I'm going to play... a WHAT?!"
+            pushMessages({ id: mkId(), type: "system", text: `📇 KP 把身份卡递给 ${name}——${fixedPersona.era} · ${fixedPersona.occupation}` });
+            // Fork: the companion reacts in their own voice — always use their real character card name & avatar
             pushMessages({
               id: mkId(),
               type: "character",
-              speaker: persona.name || name,
-              text: persona.cardReaction?.trim() || `（展开身份卡，眼睛慢慢睁大）……要我演这个时代的${persona.occupation}？行吧，我接了。`,
+              speaker: name,
+              text: fixedPersona.cardReaction?.trim() || `（展开身份卡，眼睛慢慢睁大）……要我演这个时代的${fixedPersona.occupation}？行吧，我接了。`,
               emotion: "worried",
             });
           } else if (!cancelled) {
@@ -619,9 +651,11 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     const msgs: StreamMessage[] = [];
     for (const d of scene.dialogues) {
       if (d.speaker !== "narrator") {
-        // Standalone NPC line (no marker home) — check it wasn't already emitted by a marker split
-        const dup = msgs.some(m => m.type === "npc" && m.speaker === d.speaker && normalize(m.text).includes(normalize(d.text)));
-        if (!dup) msgs.push({ id: mkId(), type: "npc" as const, speaker: d.speaker, text: d.text, emotion: d.emotion, ...audience });
+        const resolved = resolveCompanionSpeaker(d.speaker);
+        const msgType = resolved.isCompanion ? ("character" as const) : ("npc" as const);
+        // Standalone line (no marker home) — check it wasn't already emitted by a marker split
+        const dup = msgs.some(m => (m.type === "npc" || m.type === "character") && m.speaker === resolved.name && normalize(m.text).includes(normalize(d.text)));
+        if (!dup) msgs.push({ id: mkId(), type: msgType, speaker: resolved.name, text: d.text, emotion: d.emotion, ...audience });
         continue;
       }
       // Narrator: split on 〔NPC：台词〕 markers
@@ -636,13 +670,16 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         if (before) msgs.push({ id: mkId(), type: "narration" as const, text: before, ...audience });
         const spk = m[1].trim();
         const line = m[2].trim();
-        if (spk && line) msgs.push({ id: mkId(), type: "npc" as const, speaker: spk, text: line, ...audience });
+        if (spk && line) {
+          const resolved = resolveCompanionSpeaker(spk);
+          msgs.push({ id: mkId(), type: resolved.isCompanion ? ("character" as const) : ("npc" as const), speaker: resolved.name, text: line, emotion: d.emotion, ...audience });
+        }
       });
       const after = (parts[parts.length - 1] || "").trim();
       if (after) msgs.push({ id: mkId(), type: "narration" as const, text: after, ...audience });
     }
     pushMessages(...msgs);
-  }, [pushMessages]);
+  }, [pushMessages, resolveCompanionSpeaker]);
 
   // Initial location message
   const initialPushed = useRef(streamMessages.length > 0);
@@ -841,7 +878,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             .filter(a => a.currentNodeId === save.currentNodeId)
             .map(a => {
               const ch = characters.find(c => c.id === a.characterId);
-              return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: ch?.personality ? ch.personality.slice(0, 500) : undefined };
+              return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: buildCompanionPersonaAndWorldBookSummary(a.characterId) };
             }),
         },
         pacing: save.pacing,
@@ -896,6 +933,49 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       setAccumulatedEvent(scene);
       setEventContext(JSON.stringify(dmCtx));
       setInEvent(true);
+
+      // Companion active opening reaction: when a scene opens, companions at the scene immediately speak & care for the player
+      if (companionIds.length > 0) {
+        setLoadingPhase("companions");
+        try {
+          for (const cid of companionIds) {
+            const declAgent = save.agents.find(a => a.characterId === cid);
+            const ch = characters.find(c => c.id === cid);
+            if (!ch) continue;
+            const myHoCode = save.boundLineHo?.[cid];
+            const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
+            const lineHint = myLine ? `【你的模组处境背景（${myLine.ho}）】入团前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}` : undefined;
+            const personaHint = declAgent?.persona ? `【你的模组内处境】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
+            const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
+            const oocHint = recentOoc.length ? `【皮下交流共识】\n${recentOoc.map(m => m.speaker === "__user__" ? `{{user}}（皮下）：${m.text}` : `${m.speaker}（皮下）：${m.text}`).join("\n")}` : undefined;
+            const react = await companionDeclare(cid, apiConfig, streamRef.current.slice(-16), save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
+              instruction: `新场景刚刚展开！请立刻以你自己的真实性格、语气和自称开口对{{user}}说话（2-4句，饱满自然，不要只说一两个词）：
+- TRPG跑团只是你们互动的背景舞台，核心是你和{{user}}之间的感情与互动！
+- 看到眼前的处境或{{user}}的状态（比如受伤、受惊、被困或正在调查），主动关心、爱护、安抚或用你特有的方式（如嘴硬心软、霸道护短、温柔体贴等，依你人设而定）贴近{{user}}，并聊聊眼下的情况。
+- speech 写你对{{user}}说的话（必填，多说几句）；action 写你此刻关切或互动的动作细节（如查看{{user}}的伤势、靠近{{user}}、挡在前面等）。`,
+              personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") || undefined,
+            });
+            if (!react.failed && ((react.speech && react.speech !== "……") || (react.action && react.action !== "跟随队伍" && react.action !== "沉默不动"))) {
+              const card: StreamMessage = {
+                id: mkId(),
+                type: "declCard",
+                speaker: ch.name,
+                text: "",
+                emotion: react.emotion,
+                decl: {
+                  who: ch.name,
+                  say: react.speech && react.speech !== "……" ? react.speech : undefined,
+                  do: react.action && react.action !== "跟随队伍" && react.action !== "沉默不动" ? react.action : undefined,
+                  emotion: react.emotion,
+                },
+              };
+              pushMessages(card);
+              streamRef.current = [...streamRef.current, card];
+            }
+          }
+        } catch { /* best-effort opening chat */ }
+        setLoadingPhase("");
+      }
 
       // Fork: investigation hints from KP (scene stays open for player declarations)
       const sceneHints = (scene as EventScene & { hints?: { label: string; skillHint?: string }[] }).hints;
@@ -981,10 +1061,8 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
 
       const companionDecls: Declaration[] = [];
-      // Fork 导入阶段: intros are SOLO — companions are in their own opening scenes, not
-      // standing next to the player. Skip the shared declaration loop entirely; the KP
-      // narrates each companion's intro off-screen via side_scenes (locked records).
-      if (companionIds.length > 0 && !save.introPhase) {
+      // Always let companions declare & interact with the player every round (even during introPhase if they are in the story)
+      if (companionIds.length > 0) {
         // Check which companions already completed (persisted in pendingEvent.completedCompanions)
         const alreadyDone = new Set(completedCompanionsRef.current);
 
@@ -1153,7 +1231,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
           .filter(a => a.currentNodeId === save.currentNodeId)
           .map(a => {
             const ch = characters.find(c => c.id === a.characterId);
-            return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: ch?.personality ? ch.personality.slice(0, 500) : undefined };
+            return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: buildCompanionPersonaAndWorldBookSummary(a.characterId) };
           });
       }
       // Fork 拆场: remember where the player is this round — narration visibility splits along scene lines
@@ -1584,6 +1662,40 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       if (continuation.dialogues.length > 0) {
         pushSceneToStream(continuation, splitGroups.length > 1 ? `scene:${myLocationName}` : undefined);
         setActiveEvent(continuation);
+        // Companion post-resolve reaction: after KP narrates the outcome of this round, companions immediately react & care for the player
+        if (companionIds.length > 0) {
+          try {
+            for (const cid of companionIds) {
+              const declAgent = updatedAgents.find(a => a.characterId === cid) || save.agents.find(a => a.characterId === cid);
+              const ch = characters.find(c => c.id === cid);
+              if (!ch) continue;
+              const personaHint = declAgent?.persona ? `【你的模组内处境】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
+              const react = await companionDeclare(cid, apiConfig, streamRef.current.slice(-16), save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
+                instruction: `KP刚刚裁定并演出了这一轮的剧情结果（见最新消息）！请立刻以你自己的真实性格、语气和自称对{{user}}说几句话（1-3句自然对话）：
+- 针对刚才发生的结果、发现的线索或{{user}}的状况（尤其是如果{{user}}受了伤、掉了SAN或遇到了惊险/奇怪的事），主动关心、护短、安抚或与{{user}}互动聊天！
+- 只输出你此刻对{{user}}说的话（speech）和伴随的关心/亲近小动作（action），不要发起新的检定（skill_check留空）。`,
+                personaHint,
+              });
+              if (!react.failed && ((react.speech && react.speech !== "……") || (react.action && react.action !== "跟随队伍" && react.action !== "沉默不动"))) {
+                const reactCard: StreamMessage = {
+                  id: mkId(),
+                  type: "declCard",
+                  speaker: ch.name,
+                  text: "",
+                  emotion: react.emotion,
+                  decl: {
+                    who: ch.name,
+                    say: react.speech && react.speech !== "……" ? react.speech : undefined,
+                    do: react.action && react.action !== "跟随队伍" && react.action !== "沉默不动" ? react.action : undefined,
+                    emotion: react.emotion,
+                  },
+                };
+                pushMessages(reactCard);
+                streamRef.current = [...streamRef.current, reactCard];
+              }
+            }
+          } catch { /* best-effort post-resolve chat */ }
+        }
         // Include companion declarations in accumulated dialogue for next round context
         const declDialogues = companionDecls.map(d => ({ speaker: d.speaker, text: `${d.speech}（${d.action}）`, emotion: d.emotion }));
         setAccumulatedEvent(prev => prev ? {

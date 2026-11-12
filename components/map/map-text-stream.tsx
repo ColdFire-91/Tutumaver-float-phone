@@ -291,6 +291,87 @@ function MessageItem({
         </div>
       );
 
+    case "divider":
+      return (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "6px 0", opacity: 0.45,
+        }}>
+          <div style={{ flex: 1, height: 1, background: "var(--c-adv-input-border)" }} />
+          <span style={{ fontSize: "calc(9px*var(--app-text-scale,1))", fontFamily: "monospace", letterSpacing: "0.18em", color: "var(--c-adv-text-muted)" }}>
+            {msg.text}
+          </span>
+          <div style={{ flex: 1, height: 1, background: "var(--c-adv-input-border)" }} />
+        </div>
+      );
+
+    case "declCard": {
+      const d = msg.decl;
+      if (!d) return null;
+      const declAvatar = d.who ? avatarMap?.[d.who] : avatar;
+      const color = emotionColor[d.emotion || msg.emotion || "neutral"] || emotionColor.neutral;
+      const borderColor = color.startsWith("rgba(")
+        ? color.replace(/[\d.]+\)$/, "0.35)")
+        : `${color}60`;
+      return (
+        <div style={{
+          padding: "var(--c-adv-msg-padding)",
+          borderLeft: `2px var(--c-adv-msg-border-style) ${borderColor}`,
+          borderRadius: "var(--c-adv-msg-radius)",
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap",
+          }}>
+            <SpeakerAvatar src={declAvatar} fallback={d.who?.[0]} size={18} />
+            <span style={{
+              fontSize: "calc(11px*var(--app-text-scale,1))", fontWeight: 600, letterSpacing: "0.05em",
+              color,
+            }}>
+              {d.who}
+            </span>
+            {(d.emotion || msg.emotion) && emotionEmoji[(d.emotion || msg.emotion)!] && (
+              <span style={{ fontSize: "calc(12px*var(--app-text-scale,1))" }}>{emotionEmoji[(d.emotion || msg.emotion)!]}</span>
+            )}
+            {d.dice && (
+              <span style={{
+                fontSize: "calc(10px*var(--app-text-scale,1))", fontFamily: "monospace",
+                padding: "1px 6px", borderRadius: 6,
+                background: d.dice.level === "fail" || d.dice.level === "fumble" ? "rgba(196,64,64,0.15)" : "rgba(240,192,96,0.15)",
+                color: d.dice.level === "fail" || d.dice.level === "fumble" ? "#e07070" : "#f0c060",
+              }}>
+                🎲 {d.dice.skill}{d.dice.value} · D100={d.dice.roll}{d.dice.detail ? ` ${d.dice.detail}` : ""}
+              </span>
+            )}
+          </div>
+          {d.say && (
+            <div style={{ fontSize, lineHeight, color: "var(--c-adv-body)", whiteSpace: "pre-wrap" }}>
+              {bilingualTranslationEnabled ? (
+                <BilingualTextBlock
+                  text={d.say}
+                  mode="plain"
+                  defaultExpanded={defaultTranslationExpanded}
+                  originalLeading={d.who && voiceCharacterMap?.[d.who] ? <AdventureVoice characterId={voiceCharacterMap[d.who]} text={d.say} /> : undefined}
+                />
+              ) : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {d.who && voiceCharacterMap?.[d.who] && <AdventureVoice characterId={voiceCharacterMap[d.who]} text={d.say} />}
+                  <span>{d.say}</span>
+                </span>
+              )}
+            </div>
+          )}
+          {d.do && (
+            <div style={{
+              fontSize: fontSize * 0.9, lineHeight: lineHeight * 0.92,
+              color: "var(--c-adv-text-dim, rgba(255,255,255,0.62))",
+              fontStyle: "italic", marginTop: d.say ? 4 : 0, whiteSpace: "pre-wrap",
+            }}>
+              * {d.do}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     default:
       return null;
   }

@@ -10,7 +10,7 @@ import { OCCUPATIONS } from "./coc-sheet";
 const IMPORT_PROMPT = `你是COC跑团的主持人助手。一位玩家带着自己的角色卡加入模组，但角色卡的设定与模组时代/世界观可能不匹配（比如角色卡是现代人，模组是1920年代或古代）。你需要为TA生成"模组内人设"：贴合时代、贴合模组、但保留角色卡的核心性格。
 
 只输出标签块纯文本，不要JSON：
-[名字]保留原名或转成时代化变体（中文名优先保留，设定卡是外文名可音译）
+[名字]严格保留角色卡原名，禁止翻译或改名
 [时代职业]这个时代里TA是什么职业（必须是该时代真实存在的职业；角色卡职业若时代不符，转成最接近的时代等价物：现代警察→1920年代治安官/民国巡捕/古代捕快；网络主播→报社记者/说书人；程序员→电报员/账房先生。参考候选：{occ_pool}）
 [技能模板]上面候选职业之一（系统按它分配技能组；写与TA最贴的那个职业名，必须严格等于候选之一）
 [身份背景]TA在这个时代的身份与来此缘由（2-4句：做什么的、为什么卷入这次调查、与队伍如何相识）
@@ -123,7 +123,7 @@ export async function importInvestigator(
   const lockedOccupation = hoOcc || fields["时代职业"] || fields["技能模板"] || "调查员";
   const lockedRef = OCCUPATIONS.find(o => lockedOccupation.includes(o.name))?.name || fields["技能模板"] || "调查员";
   return {
-    name: fields["名字"] || characterName,
+    name: characterName,
     era: eraGuess,
     occupation: lockedOccupation,
     refOccupation: lockedRef,

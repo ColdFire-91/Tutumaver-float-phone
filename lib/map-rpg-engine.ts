@@ -53,6 +53,31 @@ function dmPlayerName(ctx: DMContext): string {
   return ctx.playerName?.trim() || "玩家";
 }
 
+/** Collect full persona + mounted worldbook entries (from both adventure and chat bindings) for a companion */
+export function buildCompanionPersonaAndWorldBookSummary(characterId: string): string | undefined {
+  const allChars = loadCharacters();
+  const ch = allChars.find(c => c.id === characterId);
+  if (!ch) return undefined;
+  const bindings = loadBindingConfig();
+  const advSlot = resolveBinding(bindings, characterId, "adventure");
+  const chatSlot = resolveBinding(bindings, characterId, "chat");
+  const allWbs = loadWorldBooks();
+  const wbIds = [...new Set([
+    ...(advSlot.worldBookIds || []),
+    ...(advSlot.topicWorldBookIds || []),
+    ...(chatSlot.worldBookIds || []),
+    ...(chatSlot.topicWorldBookIds || []),
+  ])];
+  const wbEntries = wbIds
+    .map(id => allWbs.find(w => w.id === id))
+    .filter(Boolean)
+    .flatMap(w => (w!.entries || []).filter(e => !e.disable && e.content?.trim()).map(e => e.content.trim()));
+  const charText = [ch.persona?.trim(), ch.personality?.trim()].filter(Boolean).join("\n");
+  const wbText = wbEntries.length ? `\n  ↳ 【${ch.name}挂载的世界书设定】：\n${wbEntries.join("\n").slice(0, 2500)}` : "";
+  const combined = `${charText.slice(0, 1200)}${wbText}`.trim();
+  return combined || undefined;
+}
+
 // ── Extract JSON from LLM response (handles code blocks, quotes, truncation, etc.) ──
 function extractJSON(text: string): string {
   let s = text.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "").trim();
@@ -1582,10 +1607,18 @@ async function buildCompanionDeclarePromptPayload(
   const globalSlot = resolveBinding(bindings, undefined, "adventure");
   const allPresets = loadPresets();
   const preset = slot.presetId ? allPresets.find(p => p.id === slot.presetId) ?? allPresets.find(p => p.builtIn) ?? null : allPresets.find(p => p.builtIn) ?? null;
+  const chatSlot = resolveBinding(bindings, characterId, "chat");
   const allWorldBooks = loadWorldBooks();
-  const worldBooks = (slot.worldBookIds || []).map(id => allWorldBooks.find(w => w.id === id)).filter(Boolean) as typeof allWorldBooks;
+  const mergedWbIds = [...new Set([
+    ...(slot.worldBookIds || []),
+    ...(slot.topicWorldBookIds || []),
+    ...(chatSlot.worldBookIds || []),
+    ...(chatSlot.topicWorldBookIds || []),
+  ])];
+  const worldBooks = mergedWbIds.map(id => allWorldBooks.find(w => w.id === id)).filter(Boolean) as typeof allWorldBooks;
   const allRegexes = loadRegexes();
-  const regexes = (slot.regexIds || []).map(id => allRegexes.find(r => r.id === id)).filter(Boolean) as typeof allRegexes;
+  const mergedRegexIds = [...new Set([...(slot.regexIds || []), ...(chatSlot.regexIds || [])])];
+  const regexes = mergedRegexIds.map(id => allRegexes.find(r => r.id === id)).filter(Boolean) as typeof allRegexes;
   const userIdentity = overrideUserIdentity !== undefined ? overrideUserIdentity : resolveUserIdentity(characterId, "adventure");
   const apiConfigs = loadApiConfigs();
   const globalApiConfig = globalSlot.apiConfigId ? apiConfigs.find(c => c.id === globalSlot.apiConfigId) ?? null : null;
@@ -1594,8 +1627,8 @@ async function buildCompanionDeclarePromptPayload(
   if (!apiConfig) throw new Error("未找到可用的 API 配置");
   const adventureConfig = loadAdventureInteractionConfig();
 
-  // Fork 八期B: audience isolation — companions never see locked private talks (user's or others')
-  const filteredLog = (streamLog || []).filter(m => m.type !== "system" && m.type !== "divider" && m.type !== "ooc" && m.type !== "declCard" && !(m.audience && m.audience.includes("locked")));
+  // Fork 八期B: audience isolation — companions never see locked private talks (user's or others'), but MUST see declCard!
+  const filteredLog = (streamLog || []).filter(m => m.type !== "system" && m.type !== "divider" && m.type !== "ooc" && !(m.audience && m.audience.includes("locked")));
   // Fork: declCard → readable line for LLM context (the card itself has empty text)
   const describeMsgForLLM = (m: import("./map-types").StreamMessage): string => {
     if (m.type === "declCard" && m.decl) {
@@ -1619,11 +1652,11 @@ async function buildCompanionDeclarePromptPayload(
   }));
 
   const historyContent = renderUserNameMacro(
-    options?.instruction?.trim() || `现在轮到你了。你是带着你自己的性格、脾气、说话方式、自称与口癖亲自在游玩这个模组（绝不是在扮演温顺的别人！）。按照跑团流程宣言你这一轮的行动：
-1) 说：你想说的话（必须100%用你平时的语气、自称、口癖和态度！对{{user}}/NPC/处境直接按你的真实脾气反应）
-2) 做：你的行动宣言（按你自己的个性和作风决定做什么——调查、发作、吐槽、反抗、搜索、攻击、保护或观察……做出的事必须符合你本人，哪怕因此改变或打破模组原本的剧情走向也完全没关系！）
+    options?.instruction?.trim() || `现在轮到你了。你和{{user}}正在这个跑团模组世界里一起经历剧情（TRPG只是舞台，核心是你和{{user}}的感情与互动！）。请按照你自己的真实性格、脾气、说话方式、自称与口癖回应并行动：
+1) 说（speech，必填！绝不许沉默，多说几句，2-4句饱满自然的对话）：主动和{{user}}聊天互动！时刻留意{{user}}的处境、身体状况与情绪，用你特有的方式关心、爱护、维护、安抚或调侃{{user}}（比如嘴硬心软地护短、强势保护、贴心照顾等，完全按你的人设与世界书设定来），同时回应{{user}}刚才说的话或眼前的事件。
+2) 做（action，必填）：在推进调查/应对局面的同时，自然地加入你对{{user}}的亲近、保护或照料动作（如替{{user}}挡开危险、检查{{user}}身上的伤痕、拉住{{user}}的手等）。做出的事必须符合你本人，因此改变模组剧情也完全没关系！
 3) 如果你的行动需要检定，在skill_check字段写你用的技能名（侦查/聆听/图书馆使用/心理学/潜行/手枪/急救等，或属性名如意志/幸运）；不需要检定就留空
-4) 若你决定离开队伍单独行动，在 split_to 字段写目的地名称；split_to 留空 = 留在当前场景行动
+4) 除非特殊情况，请留在{{user}}身边一起行动（split_to 留空）
 
 【宣而不演·铁律】你只宣告你的台词和行动意图，客观环境结果由 KP 在所有人宣言后统一裁定。`,
     userIdentity?.name,
@@ -1661,6 +1694,7 @@ async function buildCompanionDeclarePromptPayload(
     character, history: truncatedHistory, preset, worldBooks, regexes, userIdentity, appId: "adventure",
     longTermMemories, coreMemories, scheduleSummary,
     recentBlocks, unifiedRecentItems, worldBookActivationContext: wbActivationContext,
+    activateAllWorldBooks: true,
     affinity: overrideAffinity !== undefined ? String(overrideAffinity) : undefined,
     chatBilingualInstruction: buildAdventureCharacterBilingualInstruction(
       adventureConfig.bilingualTranslationEnabled === true,
