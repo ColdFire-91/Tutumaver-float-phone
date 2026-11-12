@@ -2,33 +2,101 @@
 // RPG Map Mode — IndexedDB storage
 
 import Dexie from "dexie";
-import type { MapWorld, GameSave, CharacterAgent, StoryDirector, CharStats } from "./map-types";
+import type { MapWorld, GameSave, CharacterAgent, StoryDirector, CharStats, PersonalSecret } from "./map-types";
+import { STAT_LABELS, ALL_STATS, BASE_STATS, lookupDB, type StatKey, type CharSheet } from "./map-types";
+import { buildCoCSheet } from "./coc-sheet";
 import { formatChatTimestamp } from "./llm-prompt-assembler";
 import { kvGet, kvSet, kvRemove, registerKvMigration, registerDynamicPrefix } from "./kv-db";
 import { DEFAULT_ADVENTURE_BILINGUAL_PROMPT } from "./bilingual-prompt-defaults";
 
-/** Roll 3d6×5 for each stat (CoC-style, range 15-90) */
-function roll3d6x5(): number {
-  return (Math.floor(Math.random() * 6) + 1 + Math.floor(Math.random() * 6) + 1 + Math.floor(Math.random() * 6) + 1) * 5;
+// ── CoC 6th Edition attribute rolls ──
+// Raw values: STR/CON/POW/DEX/APP = 3D6, SIZ/INT = 2D6+6, EDU = 3D6+3.
+// Stored as percentages (×5): 15-105. Luck = independent 3D6×5 (NOT derived from POW).
+// SAN starts at POW×5 (99 max is applied by callers if desired).
+function d6(): number { return Math.floor(Math.random() * 6) + 1; }
+function rollRaw(kind: "3d6" | "2d6p6" | "3d6p3"): number {
+  if (kind === "2d6p6") return d6() + d6() + 6;
+  if (kind === "3d6p3") return d6() + d6() + d6() + 3;
+  return d6() + d6() + d6();
 }
-function rollStats(): CharStats {
-  return { str: roll3d6x5(), con: roll3d6x5(), dex: roll3d6x5(), int: roll3d6x5(), per: roll3d6x5(), cha: roll3d6x5(), lck: roll3d6x5() };
+function rollBase(edition: "coc6" | "coc7"): Pick<CharStats, "str" | "con" | "pow" | "dex" | "app" | "siz" | "int" | "edu"> {
+  const eduKind = edition === "coc7" ? "2d6p6" : "3d6p3";  // 7th: EDU = 2D6+6
+  return {
+    str: rollRaw("3d6") * 5,
+    con: rollRaw("3d6") * 5,
+    pow: rollRaw("3d6") * 5,
+    dex: rollRaw("3d6") * 5,
+    app: rollRaw("3d6") * 5,
+    siz: rollRaw("2d6p6") * 5,
+    int: rollRaw("2d6p6") * 5,
+    edu: rollRaw(eduKind) * 5,
+  };
 }
-/** Roll stats with personality-based bonuses (±10) */
-function rollStatsFromPersonality(p: string): CharStats {
-  const base = rollStats();
+function rollStats(edition: "coc6" | "coc7" = "coc6"): CharStats {
+  const base = rollBase(edition);
+  return { ...base, san: base.pow, lck: rollRaw("3d6") * 5 };
+}
+/** Max HP from percent-scale CON/SIZ. 6th: ceil((CON+SIZ)/10); 7th: floor((CON+SIZ)/10). */
+export function maxHpFromStats(stats: CharStats, edition: "coc6" | "coc7" = "coc6"): number {
+  return edition === "coc7"
+    ? Math.max(1, Math.floor((stats.con + stats.siz) / 10))
+    : Math.max(1, Math.ceil((stats.con + stats.siz) / 10));
+}
+/** MP from percent-scale POW: floor(POW / 25). */
+export function maxMpFromStats(stats: CharStats): number {
+  return Math.floor(stats.pow / 25);
+}
+/** Damage bonus string from percent-scale STR/SIZ. */
+export function dbFromStats(stats: CharStats): string {
+  return lookupDB(stats.str / 5 + stats.siz / 5);
+}
+/** Roll stats with personality-based adjustments (±10 percentiles on base attributes) */
+function rollStatsFromPersonality(p: string, edition: "coc6" | "coc7" = "coc6"): CharStats {
+  const base = rollStats(edition);
   const boost = (keywords: string[]) => keywords.some(k => p.includes(k)) ? 10 : 0;
   const nerf = (keywords: string[]) => keywords.some(k => p.includes(k)) ? -10 : 0;
-  const clamp = (v: number) => Math.max(15, Math.min(90, v));
+  const clamp = (v: number) => Math.max(15, Math.min(99, v));
   return {
     str: clamp(base.str + boost(["强壮", "力量", "热血", "武"]) + nerf(["柔弱", "瘦小"])),
     con: clamp(base.con + boost(["坚韧", "耐力", "顽强"]) + nerf(["虚弱", "病"])),
+    pow: clamp(base.pow + boost(["意志", "坚定", "沉着", "冷静"]) + nerf(["胆小", "怯懦", "脆弱"])),
     dex: clamp(base.dex + boost(["敏捷", "灵活", "身手"]) + nerf(["笨拙"])),
-    int: clamp(base.int + boost(["聪明", "冷静", "理性", "智"]) + nerf(["单纯", "天真"])),
-    per: clamp(base.per + boost(["敏锐", "观察", "直觉", "细心"]) + nerf(["迟钝", "粗心"])),
-    cha: clamp(base.cha + boost(["魅力", "可爱", "社交", "迷人"]) + nerf(["内向", "冷漠"])),
-    lck: clamp(base.lck + boost(["幸运", "运气"]) + nerf(["倒霉"])),
+    app: clamp(base.app + boost(["魅力", "可爱", "迷人", "优雅"]) + nerf(["邋遢", "凶悍"])),
+    siz: clamp(base.siz + boost(["高大", "魁梧", "壮实"]) + nerf(["娇小", "纤细"])),
+    int: clamp(base.int + boost(["聪明", "博学", "理性", "智"]) + nerf(["单纯", "天真"])),
+    edu: clamp(base.edu + boost(["学者", "教授", "医生", "律师", "记者"]) + nerf(["文盲", "无知"])),
+    san: base.pow,
+    lck: base.lck,
   };
+}
+/** Old (pre-CoC6) 7-stat shape → migrate to CoC6 percentages.
+ *  Mapping: per→int, cha→app; missing pow/siz/edu are inferred from sibling stats
+ *  (siz≈str/con avg, edu≈int), san starts at pow, lck carries over as luck. */
+function migrateOldStats(old: Partial<Record<string, number>>): CharStats {
+  const hasOld = (k: string) => typeof (old as Record<string, unknown>)[k] === "number";
+  if (!hasOld("str") && !hasOld("int")) return rollStats();
+  const avg = (keys: string[]) => {
+    const vals = keys.filter(hasOld).map(k => Number((old as Record<string, number>)[k]));
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 50;
+  };
+  const pick = (k: string, fallbackKeys: string[]) => hasOld(k) ? Number((old as Record<string, number>)[k]) : avg(fallbackKeys);
+  const str = pick("str", ["str"]);
+  const con = pick("con", ["con"]);
+  const dex = pick("dex", ["dex"]);
+  const int = pick("int", ["per", "int"]);
+  const app = pick("app", ["cha", "app"]);
+  const pow = pick("pow", ["lck", "per"]);
+  const siz = pick("siz", ["str", "con"]);
+  const edu = pick("edu", ["int", "edu"]);
+  const lck = pick("lck", ["lck"]);
+  const powPct = Math.max(1, pow);
+  return { str, con, pow: powPct, dex, app, siz, int, edu, san: Math.min(powPct, 99), lck };
+}
+/** Ensure a stats object has all 10 CoC6 keys (migrating old 7-stat saves in place). */
+export function ensureCoC6Stats(stats: Partial<CharStats> | undefined): CharStats {
+  if (!stats) return rollStats();
+  const hasNewKey = typeof stats.pow === "number" && typeof stats.san === "number";
+  return hasNewKey ? stats as CharStats : migrateOldStats(stats);
 }
 
 class MapDatabase extends Dexie {
@@ -62,6 +130,33 @@ export async function hydrateMapStorage(): Promise<void> {
     _worldsCache = await mapDb.worlds.toArray();
     _savesCache = await mapDb.saves.toArray();
   } catch { /* first run */ }
+  // Migrate old saves: CoC6 stats (10 keys incl. pow/san), recompute maxHp, backfill san
+  let migrated = false;
+  for (let i = 0; i < _savesCache.length; i++) {
+    const s = _savesCache[i];
+    if (!s.playerStats || typeof s.playerStats.pow !== "number" || typeof s.playerStats.san !== "number") {
+      const stats = ensureCoC6Stats(s.playerStats);
+      const maxHp = Math.max(1, maxHpFromStats(stats));
+      const patched: GameSave = {
+        ...s,
+        playerStats: stats,
+        maxHp,
+        hp: Math.min(s.hp ?? maxHp, maxHp),
+        san: typeof s.san === "number" ? s.san : Math.min(stats.san, 99),
+        playerSheet: s.playerSheet || buildCoCSheet(stats),
+        checkedSkills: s.checkedSkills || [],
+      };
+      patched.agents = (patched.agents || []).map(a => {
+        const aStats = ensureCoC6Stats(a.stats);
+        const aMaxHp = Math.max(1, maxHpFromStats(aStats));
+        return { ...a, stats: aStats, maxHp: aMaxHp, hp: Math.min(a.hp ?? aMaxHp, aMaxHp), san: typeof a.san === "number" ? a.san : Math.min(aStats.san, 99), sheet: a.sheet || buildCoCSheet(aStats) };
+      });
+      _savesCache[i] = patched;
+      mapDb.saves.put(patched).catch(() => undefined);
+      migrated = true;
+    }
+  }
+  if (migrated) console.log("[MapStorage] Migrated old saves to CoC6 stats");
   // Hydrate theme blobs from IDB into memory cache
   try { await hydrateThemeBlobs(); } catch { /* ignore */ }
   _hydrated = true;
@@ -106,7 +201,9 @@ export function getLatestSave(worldId: string): GameSave | null {
   const saves = loadSavesForWorld(worldId);
   const save = saves[0] ?? null;
   if (save && !save.playerStats) {
-    const patched = { ...save, playerStats: rollStats() };
+    const stats = rollStats();
+    const maxHp = Math.max(1, maxHpFromStats(stats));
+    const patched = { ...save, playerStats: stats, maxHp, hp: Math.min(save.hp ?? maxHp, maxHp) };
     saveGame(patched);
     return patched;
   }
@@ -127,8 +224,14 @@ export function deleteSave(id: string): void {
 
 // ── New Game State ──
 
-export function createInitialSave(worldId: string, startNodeId: string): GameSave {
+export function createInitialSave(worldId: string, startNodeId: string, edition: "coc6" | "coc7" = "coc6", personalSecrets?: PersonalSecret[]): GameSave {
   const now = new Date().toISOString();
+  const stats = rollStats(edition);
+  const maxHp = Math.max(1, maxHpFromStats(stats, edition));
+  // Fork 八期A: deal secrets — last one is the player's, one per companion (skip if not enough)
+  const pool = personalSecrets && personalSecrets.length > 0 ? [...personalSecrets] : [];
+  const mySecret = pool.pop();
+  const agentSecrets: Record<string, PersonalSecret> = {};
   return {
     id: `save_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     worldId,
@@ -137,10 +240,15 @@ export function createInitialSave(worldId: string, startNodeId: string): GameSav
     currentNodeType: "l1",
     discoveredNodes: [startNodeId],
     visitedNodes: [startNodeId],
-    hp: 100,
-    maxHp: 100,
-    playerStats: rollStats(),
+    hp: maxHp,
+    maxHp,
+    san: Math.min(stats.san, 99),
+    playerStats: stats,
+    playerSheet: buildCoCSheet(stats, undefined, undefined, edition),
+    checkedSkills: [],
     agents: [],
+    mySecret,
+    agentSecrets,
     mainQuestStage: 0,
     usedEncounterIds: [],
     director: createInitialDirector(),
@@ -160,9 +268,22 @@ export function createInitialSave(worldId: string, startNodeId: string): GameSav
 }
 
 /** Add a character agent to a save */
-export function addAgentToSave(save: GameSave, characterId: string, personality: string): GameSave {
+export function addAgentToSave(save: GameSave, characterId: string, personality: string, edition: "coc6" | "coc7" = "coc6", pendingSecrets?: PersonalSecret[], persona?: import("./map-types").InvestigatorPersona): GameSave {
   if (save.agents.some(a => a.characterId === characterId)) return save;
   const p = personality.toLowerCase();
+  const stats = rollStatsFromPersonality(p, edition);
+  const maxHp = Math.max(1, maxHpFromStats(stats, edition));
+  // Fork 八期A: deal an undealt secret to this companion (player's secret was popped at save creation)
+  let agentSecrets = save.agentSecrets;
+  if (pendingSecrets && pendingSecrets.length > 0) {
+    const secret = pendingSecrets[0];
+    agentSecrets = { ...save.agentSecrets, [characterId]: secret };
+    pendingSecrets.shift();
+  }
+  // Fork 十一期: persona import — use the era-adapted occupation for the skill template
+  const sheet = persona?.refOccupation
+    ? buildCoCSheet(stats, personality, persona.refOccupation, edition)
+    : buildCoCSheet(stats, personality, undefined, edition);
   const agent: CharacterAgent = {
     characterId,
     currentNodeId: save.currentNodeId,  // starts at user's location
@@ -171,13 +292,16 @@ export function addAgentToSave(save: GameSave, characterId: string, personality:
     visitedNodes: [save.currentNodeId],
     activeSideQuests: [],
     completedSideQuests: [],
-    hp: 100,
-    maxHp: 100,
+    hp: maxHp,
+    maxHp,
+    san: Math.min(stats.san, 99),
     journal: [],
     affinity: 15,
-    stats: rollStatsFromPersonality(p),
+    stats,
+    persona,
+    sheet,
   };
-  return { ...save, agents: [...save.agents, agent] };
+  return { ...save, agents: [...save.agents, agent], agentSecrets };
 }
 
 /** Remove a character agent from a save */
@@ -456,3 +580,7 @@ export function saveAdventureSummary(worldId: string, summary: AdventureSummary)
   if (typeof window === "undefined") return;
   kvSet(ADVENTURE_SUMMARY_KEY_PREFIX + worldId, JSON.stringify(summary));
 }
+
+// Re-export CoC6 helpers for convenience
+export { STAT_LABELS, ALL_STATS, BASE_STATS, lookupDB };
+export type { StatKey };

@@ -1,0 +1,134 @@
+// lib/investigator-import.ts
+// Fork 十一期: investigator import — adapt a character card to the module's era/setting before play.
+// One LLM call per companion at world entry; output is a structured persona that overrides the raw card in-game.
+
+import type { ApiConfig } from "./settings-types";
+import { simpleLLMCall } from "./api-helpers";
+import type { InvestigatorPersona, PersonalSecret, WorldSkeleton } from "./map-types";
+import { OCCUPATIONS } from "./coc-sheet";
+
+const IMPORT_PROMPT = `你是COC跑团的主持人助手。一位玩家带着自己的角色卡加入模组，但角色卡的设定与模组时代/世界观可能不匹配（比如角色卡是现代人，模组是1920年代或古代）。你需要为TA生成"模组内人设"：贴合时代、贴合模组、但保留角色卡的核心性格。
+
+只输出标签块纯文本，不要JSON：
+[名字]保留原名或转成时代化变体（中文名优先保留，设定卡是外文名可音译）
+[时代职业]这个时代里TA是什么职业（必须是该时代真实存在的职业；角色卡职业若时代不符，转成最接近的时代等价物：现代警察→1920年代治安官/民国巡捕/古代捕快；网络主播→报社记者/说书人；程序员→电报员/账房先生。参考候选：{occ_pool}）
+[技能模板]上面候选职业之一（系统按它分配技能组；写与TA最贴的那个职业名，必须严格等于候选之一）
+[身份背景]TA在这个时代的身份与来此缘由（2-4句：做什么的、为什么卷入这次调查、与队伍如何相识）
+[性格保持]角色卡里不变的部分（2-3句：核心性格、说话方式、口头禅、与{{user}}的关系基调）
+[时代调整]原设定到模组设定的对应关系（1-2句，如"原设定的手机改为随身怀表与笔记本"）
+[背景钩子]TA与本次调查的私人连接（1-2句：TA为什么在意这个案子——原因必须能自然解释TA加入调查，且可与其性格呼应）
+[拿卡反应]TA拿到身份卡那一刻的第一人称感叹（1-2句，体现"我接下来要扮演的人居然是……"的错愕或兴奋：TA读出卡上的职业并用自己的口吻反应。用TA的性格和说话方式——傲娇会别扭、老成会感慨、元气会兴奋。不要旁白腔）
+
+要求：
+- 性格、说话方式、与{{user}}的关系必须忠于角色卡，禁止重写人格
+- 时代职业、生活方式、物品全部时代化，禁止出现不属于该时代的元素
+- 背景钩子要具体（与模组开头的地点/事件/失踪者有关联更好），不要"命运指引"这类空话
+- [拿卡反应]必须是第一人称台词（可带语气词），像玩家看到卡的那一瞬脱口而出`;
+
+const PROMPT_SECRET_BLOCK = `
+
+补充：这是一个秘密团，每位调查员会拿到一个个人秘密。TA的秘密是：「{secret}」（与真相的咬合：{link}）。
+[背景钩子]必须与这个秘密自然衔接——TA在意这个案子的私人原因应与其秘密相关或相邻，但不要在背景里写破秘密内容。`;
+
+// Fork fix: COMPANION version — the companion IS their assigned HO, same as the player.
+// The full car-card (intro story + relations) is passed in; the persona must be written
+// from THAT story, not "a follower of that line".
+const PROMPT_HO_BLOCK = `
+
+补充：这是TA本人的调查员身份卡，TA扮演的HO车卡全文如下（这是TA的身份蓝本，不是别人的故事）：
+---
+{ho_full_line}
+---
+【身份铁律】
+- 这就是TA的设定：[身份背景]采用车卡里的事实（家人、师承、关系人、经历），禁止改写车卡既定事实——TA就是车卡里的这个人（春日亭接班人之子、风月院养子……），不是"认识这个剧情的人"
+- [时代职业]必须就是车卡规定的职业「{ho_occupation}」，一字不差（"落语"就写"落语师"，"漫才"就写"漫才师"，"歌舞伎"就写"歌舞伎演员"——不许译成脱口秀演员、旅行博主之类的现代近似物）
+- TA的角色卡（性格设定）只提供说话方式与语气——人格保持不变，身份与经历完全来自车卡
+- [拿卡反应]是TA读到"自己"的这辆车卡的感想（用TA的性格口吻）
+- [背景钩子]从车卡的导入剧情里取：TA眼下正面对的那件事`;
+
+// Fork fix: PLAYER version — the user IS this HO, not a follower of one. The persona card
+// must be written first-person from the HO's own car-card: their family, their relations,
+// their pre-story. Nothing about "随HO行动" — the HO line IS their identity.
+const PROMPT_PLAYER_HO_BLOCK = `
+
+补充：这是玩家本人的调查员身份卡，TA扮演的HO车卡全文如下（这是TA的身份蓝本，不是别人的故事）：
+---
+{ho_full_line}
+---
+【身份铁律】
+- 这就是"你"的设定：[身份背景]用第二人称写"你"的来历——直接采用车卡里的事实（家人、师承、关系人、经历），禁止改写车卡既定事实
+- [时代职业]必须就是车卡规定的职业「{ho_occupation}」，一字不差（"落语/搞笑艺人"就写"落语师/搞笑艺人"，不许译成脱口秀、旅行博主之类的现代近似物）
+- 角色卡只提供说话方式与语气——你是"这个人"，不是"扮演这个人的人"
+- [背景钩子]从车卡的导入剧情里取：你眼下正面对的那件事`;
+
+/** Adapt one companion's persona to the module. Returns null on failure (caller falls back to raw card). */
+export async function importInvestigator(
+  characterName: string,
+  characterPersonality: string,
+  skeleton: WorldSkeleton,
+  secret?: PersonalSecret,
+  apiConfig: ApiConfig,
+  hoOccupation?: string,
+  hoFullLine?: string,          // Fork fix: the HO car-card text (intro+relations) — player & companions
+  isPlayer?: boolean,           // Fork fix: player card writes in 2nd person; companion card in 3rd
+): Promise<InvestigatorPersona | null> {
+  const eraGuess = skeleton.world.lore.slice(0, 120) || skeleton.world.name;
+  const occPool = OCCUPATIONS.map(o => o.name).join("/");
+  let prompt = IMPORT_PROMPT.replace("{occ_pool}", occPool);
+  if (hoOccupation?.trim()) {
+    // Fork fix: companions get the same first-person-from-car-card treatment as the player —
+    // the "player" block writes in 2nd person for the user; companions use the neutral one.
+    const block = isPlayer ? PROMPT_PLAYER_HO_BLOCK : PROMPT_HO_BLOCK;
+    prompt += (hoFullLine?.trim()
+      ? block.split("{ho_full_line}").join(hoFullLine.trim()).split("{ho_occupation}").join(hoOccupation.trim())
+      : block.split("{ho_occupation}").join(hoOccupation.trim()).split("{ho_full_line}").join("（车卡全文缺失，仅按职业要求写）"));
+  }
+  if (secret) {
+    prompt += PROMPT_SECRET_BLOCK.replace("{secret}", secret.content).replace("{link}", secret.link || "未注明");
+  }
+  const userMsg = `模组：${skeleton.world.name}（${eraGuess}）
+主线：${skeleton.mainQuest.title} — ${skeleton.mainQuest.synopsis}
+开场地点：${skeleton.mainQuest.stages[0]?.locationHint || skeleton.richRegions[0]?.l1_name_cn || "未知"}
+角色卡：${characterName}
+性格设定：${characterPersonality}`;
+
+  const result = await simpleLLMCall(apiConfig, [
+    { role: "system", content: prompt },
+    { role: "user", content: userMsg },
+  ], { temperature: 0.7 });
+  if (!result.content) return null;
+
+  // Parse tagged blocks
+  const fields: Record<string, string> = {};
+  let key = "";
+  let buf: string[] = [];
+  for (const raw of result.content.replace(/```[a-zA-Z]*\s*/g, "").replace(/```/g, "").split("\n")) {
+    const m = raw.match(/^\s*\[([^\]]+)\]\s*(.*)$/);
+    if (m) { if (key) fields[key] = buf.join("\n").trim(); key = m[1].trim(); buf = [m[2] ?? ""]; }
+    else if (key) buf.push(raw);
+  }
+  if (key) fields[key] = buf.join("\n").trim();
+
+  if (!fields["技能模板"] || !OCCUPATIONS.some(o => o.name === fields["技能模板"])) {
+    // Skill template must be a real occupation; drop to first mention or detective
+    fields["技能模板"] = OCCUPATIONS.find(o => (fields["时代职业"] || "").includes(o.name))?.name || "调查员";
+  }
+  // Fork fix: hard override — when an HO occupation is mandated, the LLM's "era-adapted" wording
+  // often drifts (落语→脱口秀演员, 歌舞伎→旅行博主). The HO contract is ironclad: occupation
+  // must match the source text exactly. We keep the LLM's background/keepTraits but lock the job.
+  const hoOcc = hoOccupation?.trim();
+  const lockedOccupation = hoOcc || fields["时代职业"] || fields["技能模板"] || "调查员";
+  const lockedRef = OCCUPATIONS.find(o => lockedOccupation.includes(o.name))?.name || fields["技能模板"] || "调查员";
+  return {
+    name: fields["名字"] || characterName,
+    era: eraGuess,
+    occupation: lockedOccupation,
+    refOccupation: lockedRef,
+    background: fields["身份背景"] || "",
+    keepTraits: fields["性格保持"] || characterPersonality.slice(0, 200),
+    // Fork: suppress the LLM's era-adaptation note when the job is locked — it would contradict
+    changes: hoOcc ? "" : (fields["时代调整"] || ""),
+    hooks: fields["背景钩子"] || "",
+    cardReaction: fields["拿卡反应"] || "",
+  };
+}
