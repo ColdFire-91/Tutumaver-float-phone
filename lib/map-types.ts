@@ -303,6 +303,7 @@ export type GameSave = {
   };
   checkpoint?: string;           // JSON snapshot of GameSave at save point (for death rollback)
   pacing?: "relaxed" | "normal" | "fast";  // narrative pacing preference
+  memoryAccess?: Record<string, boolean>;  // per-companion memory access flag
   completed?: boolean;           // main quest finished
   // ── CoC6 combat round (fork) ──
   combat?: {

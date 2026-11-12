@@ -1672,7 +1672,7 @@ export async function previewAdventureCompanionPromptPayload(
   streamLog?: import("./map-types").StreamMessage[],
   overrideUserIdentity?: import("../components/settings/user-identity").UserIdentity | null,
   overrideAffinity?: number,
-  options?: { instruction?: string },
+  options?: { instruction?: string; readExistingMemory?: boolean },
 ): Promise<{ messages: LLMMessage[]; characterName: string; model: string; presetName: string }> {
   const { character, apiConfig, preset, llmMessages } = await buildCompanionDeclarePromptPayload(
     characterId,

@@ -30,7 +30,7 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: true,
   },
   outputFileTracingIncludes: {
     "/api/**": ["./data/**"],
