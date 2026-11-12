@@ -877,7 +877,13 @@ export async function generateWorldSkeleton(
 
 // ── 2a. DM Scene — generates narration + NPC lines + choices (DM knows secrets) ──
 
-export const DEFAULT_DM_SCENE_PROMPT = `你是COC跑团的守秘人（KP）。你控制旁白和NPC，不替调查员（队伍成员）说话。平等对待所有成员，用名字称呼他们。
+export const DEFAULT_DM_SCENE_PROMPT = `你是COC跑团的守秘人（KP）。你控制旁白和模组NPC，绝不替调查员（{{user}}和同行角色）说话或违背他们的性格做决定。平等对待所有成员，用名字称呼他们。
+
+【角色性格至上·防OOC铁律（最高优先级）】
+- 同行角色（见[队伍成员与核心性格]）和{{user}}是带着**自己原本的鲜明性格、脾气、口癖、自称（如“本大爷”“老子”等）**亲自进入这个模组游玩的，绝不是变成了模组预设的木偶！
+- **绝不替同行角色说台词，更禁止把同行角色当成NPC放进 npc_lines 或 〔名字：台词〕 里替他们发言！**（哪怕在双人模组/秘密团里，某位同行角色承担了模组里的另一个HO位置或特殊状态，TA的台词与反应也必须由TA自己在宣言阶段按原本性格说出；即便由于剧情状态衍生出“白天的XX/夜晚的XX”，只要本质还是该角色，也必须100%保留TA原本的性格、脾气、说话方式和自称，严禁写成模组预设的温顺/苦笑/陌生人文风！）
+- 在 narration 旁白中如果描写到同行角色的神态或小动作，必须严格贴合[队伍成员与核心性格]中TA的真实性格（例如原本嚣张傲慢的角色被铁链锁住，表现出来的应当是烦躁、不爽、嘴硬或骂骂咧咧，绝不会是“苦笑着垂下眼帘无奈叹息”）。
+- **允许并鼓励因角色性格改变模组剧情**：当调查员按自己的性格做出的行动偏离模组预设剧本时，无条件顺应角色的真实性格去推演新的剧情发展，改写模组原有走向完全没关系！
 
 职责与流程（真正的跑团桌面流程）：
 - 你的职责是报模组信息：这里有什么（环境、物品、痕迹）、NPC有谁、NPC说了什么做了什么、氛围如何
@@ -1041,7 +1047,7 @@ export type DMContext = {
     playerSheet?: import("./map-types").CharSheet;
     combat?: { round: number; initiative: string[]; currentIndex: number; hostiles: { name: string; dex: number; hp: number; maxHp: number; notes?: string }[] };
     madness?: { temporary?: { rounds: number; symptom: string }; permanent?: boolean };
-    companions: { name: string; affinity: number; stats: import("./map-types").CharStats; status: string; sheet?: import("./map-types").CharSheet }[];
+    companions: { name: string; affinity: number; stats: import("./map-types").CharStats; status: string; sheet?: import("./map-types").CharSheet; personality?: string }[];
   };
   declarations?: import("./map-types").Declaration[];
   pacing?: "relaxed" | "normal" | "fast";
@@ -1074,6 +1080,8 @@ export type DMContext = {
   playerPersona?: string;
   // Fork 拆场: party split — per-location groups; KP narrates each scene separately, no cross-scene leaks
   splitGroups?: { where: string; members: string[] }[];
+  // Recent OOC discussion between player and companions
+  oocNotes?: string;
 };
 
 /** Truncate an array of strings from the oldest, keeping newest within token budget */
@@ -1246,13 +1254,13 @@ ${ctx.npcName ? `NPC：${ctx.npcName}（${ctx.npcPersonality}）` : ""}
 队伍成员：{{user}}、${ctx.companionNames.join("、") || "无"}${ctx.playerPersona ? `\n{{user}}的模组内身份：${ctx.playerPersona}（叙述中按此身份称呼与对待{{user}}）` : ""}
 （{{user}}是用户。所有输出里指代用户都必须写"{{user}}"，不要写"你"或"你们"；其余成员也用名字。不替任何成员说话。需要指代全队时写"队伍"或"众人"。）
 
-# 队伍状态
+# 队伍成员与核心性格（必须严格贴合角色原本的性格、脾气、说话方式与自称，严禁按模组预设写成OOC的另一个人！）
 ${ctx.partyStatus ? `HP：${ctx.partyStatus.hp}/${ctx.partyStatus.maxHp}${typeof ctx.partyStatus.san === "number" ? `\nSAN：${ctx.partyStatus.san}/99` : ""}
 物品栏：${ctx.partyStatus.items.join("、") || "空"}
 玩家属性：${ctx.partyStatus.playerStats ? formatStats(ctx.partyStatus.playerStats) : "?"}
 玩家职业：${ctx.partyStatus.playerSheet?.occupation || "调查员"} · 信用评级${ctx.partyStatus.playerSheet?.creditRating ?? "?"}${ctx.partyStatus.playerSheet?.weapons?.length ? ` · 武器：${ctx.partyStatus.playerSheet.weapons.map(w => `${w.name}(${w.damage})`).join("、")}` : ""}
 玩家技能：${ctx.partyStatus.playerSheet ? Object.entries(ctx.partyStatus.playerSheet.skills).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => `${k}${v}`).join("/") : "无"}
-${ctx.partyStatus.companions.map(c => `${c.name}：${c.sheet?.occupation || "调查员"} 好感${c.affinity} HP${"?"} ${formatStats(c.stats)}${c.sheet?.weapons?.length ? ` 武器:${c.sheet.weapons.map(w => `${w.name}(${w.damage})`).join("、")}` : ""}${c.status ? ` [${c.status}]` : ""}`).join("；")}` : "无数据"}
+${ctx.partyStatus.companions.map(c => `${c.name}：${c.sheet?.occupation || "调查员"} 好感${c.affinity} ${formatStats(c.stats)}${c.sheet?.weapons?.length ? ` 武器:${c.sheet.weapons.map(w => `${w.name}(${w.damage})`).join("、")}` : ""}${c.status ? ` [${c.status}]` : ""}${c.personality ? `\n  ↳ 【${c.name}的核心性格设定（绝对遵守，禁止OOC）】：${c.personality}` : ""}`).join("\n")}` : "无数据"}${ctx.oocNotes ? `\n\n# [皮下交流共识·KP必须配合落实]\n以下是玩家与角色刚刚在皮下（OOC）直接沟通的内容。如果玩家指出了某角色刚才的表现OOC、或商定了接下来的行动与态度，你在本轮演出和裁定中必须立刻配合纠正并体现出来：\n${ctx.oocNotes}` : ""}
 
 # 规则（COC${is7 ? "7" : "6"}版）${ruleExtra7}
 属性（百分值）：力量str/体质con/意志pow/敏捷dex/外貌app/体型siz/智力int/教育edu/理智san/幸运lck。属性成长由系统自动处理，DM不要在gained里加属性。
@@ -1611,17 +1619,13 @@ async function buildCompanionDeclarePromptPayload(
   }));
 
   const historyContent = renderUserNameMacro(
-    options?.instruction?.trim() || `现在轮到你了。按照跑团流程宣言你这一轮的行动：
-1) 说：你想说的话（对队友/NPC/自言自语；也可以不说话）
-2) 做：你的行动宣言（调查、搜索、攀爬、攻击、跟随、原地观察……任选；也可以只是听和想，不行动）
+    options?.instruction?.trim() || `现在轮到你了。你是带着你自己的性格、脾气、说话方式、自称与口癖亲自在游玩这个模组（绝不是在扮演温顺的别人！）。按照跑团流程宣言你这一轮的行动：
+1) 说：你想说的话（必须100%用你平时的语气、自称、口癖和态度！对{{user}}/NPC/处境直接按你的真实脾气反应）
+2) 做：你的行动宣言（按你自己的个性和作风决定做什么——调查、发作、吐槽、反抗、搜索、攻击、保护或观察……做出的事必须符合你本人，哪怕因此改变或打破模组原本的剧情走向也完全没关系！）
 3) 如果你的行动需要检定，在skill_check字段写你用的技能名（侦查/聆听/图书馆使用/心理学/潜行/手枪/急救等，或属性名如意志/幸运）；不需要检定就留空
-4) 想清楚你为什么这么做——按你的人设和当前处境行动，不要人云亦云
-5) 若你决定离开队伍单独行动（去别的地方调查、单独去找某人、深夜独自外出……），在 split_to 字段写目的地名称——你会离队前往那里，那边的遭遇只有你自己知道；split_to 留空 = 留在队伍里行动
+4) 若你决定离开队伍单独行动，在 split_to 字段写目的地名称；split_to 留空 = 留在当前场景行动
 
-【宣而不演·铁律】你只宣告意图，绝不演出结果：
-- 只说"我要翻开那本登记簿查昨夜的记录"，绝不说"翻开后我发现……"——结果由 KP 在所有人宣言后统一演出
-- 即使你在对话流里看到某次检定的骰点（那是别人的宣言），你也不知道结果内容——你的宣言里禁止出现任何"发现/得知/看到"的结果性描述
-- speech 同理：可以表达怀疑、猜测、打算（"这登记簿有点不对劲，我看看"），不可以宣布结论（"登记簿被涂改过了"）`,
+【宣而不演·铁律】你只宣告你的台词和行动意图，客观环境结果由 KP 在所有人宣言后统一裁定。`,
     userIdentity?.name,
   );
   let historyContentFinal = options?.secretHint?.trim()
@@ -1694,12 +1698,18 @@ export async function previewAdventureCompanionPromptPayload(
 
 export const DEFAULT_DM_RESOLVE_PROMPT = `你是COC跑团的守秘人（KP）。这是裁定阶段——所有调查员已宣言本轮行动。平等对待所有成员，所有成员都用名字称呼。
 
+【角色性格至上·防OOC铁律（最高优先级）】
+- 同行角色（见[队伍成员与核心性格]）和{{user}}是带着**自己原本的鲜明性格、脾气、口癖、自称（如“本大爷”“老子”等）**亲自进入这个模组游玩的，绝不是变成了模组预设的木偶！
+- **严禁篡改同行角色的性格与语气，严禁把同行角色放进 npc_lines 或 〔名字：台词〕 里替他们编造违背人设的台词！** 同行角色已经在[本轮声明]里说出了他们自己的话并做出了行动；如果模组机制要求表现该角色在特殊状态下的反应（如“白天的XX”），也必须100%遵循[队伍成员与核心性格]里TA原本的说话方式、自称、口癖与脾气，绝不能按模组原文写成另一个温顺/苦笑/陌生的性格！
+- **角色性格高于模组剧本**：当角色按照自己的真实性格做出的事与模组预设发展不一致时，必须优先尊重并顺应角色的性格与行动结果，因此改变或改写模组后续内容完全没关系！
+- 若上下文中有[皮下交流共识]，必须在本次裁定与演出中立刻落实玩家与角色达成的场外共识（如纠正OOC、调整演出方向）。
+
 你需要：
 0. 掷骰结果已由系统在对话流中给出（每人宣言自己的检定，各自掷各自的）——你只负责按已掷出的结果演结果，不要虚构新的掷骰或重掷
-1. 根据每个人的宣言描述结果（成功/失败/意外后果）
+1. 根据每个人的宣言描述结果（成功/失败/意外后果），描写调查员神态反应时必须符合其原本性格
 2. NPC对所有角色的回应（有人说话了就要回应）
 3. 角色之间的互动呼应
-4. 推进主线调查（不要让剧情停滞！但也不要替用户做决定，必须尊重用户决策！）
+4. 推进主线调查（不要让剧情停滞！但也不要替用户做决定，必须尊重用户和角色的真实性格决策！）
 5. choices 数组一律留空 []——绝不输出任何选项，玩家完全用自由宣言行动；你的引导通过叙述里的可疑细节与 hints 完成
 
 注意：每个角色的宣言只是"意图"，实际结果由你裁定。你要把所有人的行动编织成一段连贯的叙事。

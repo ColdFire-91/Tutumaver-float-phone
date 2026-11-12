@@ -841,12 +841,16 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             .filter(a => a.currentNodeId === save.currentNodeId)
             .map(a => {
               const ch = characters.find(c => c.id === a.characterId);
-              return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet };
+              return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: ch?.personality ? ch.personality.slice(0, 500) : undefined };
             }),
         },
         pacing: save.pacing,
       };
 
+      const recentOocForScene = streamRef.current.filter(m => m.type === "ooc").slice(-8);
+      if (recentOocForScene.length) {
+        (dmCtx as import("@/lib/map-rpg-engine").DMContext).oocNotes = recentOocForScene.map(m => m.speaker === "__user__" ? `${userIdentity?.name || "玩家"}：${m.text}` : `${m.speaker}：${m.text}`).join("\n");
+      }
       const scene = await expandEvent(dmCtx, companionIds, apiConfig);
       failedSkillsRef.current.clear(); // new scene — reset the failed-check guard
       const dmScene = scene as EventScene & { dmSituation?: string; worldEvents?: string[]; revealed?: string[] };
@@ -994,11 +998,13 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             // Fork 十二期: companion remembers their OWN private talks (lockedLog filtered by who)
             const ownTalks = (save.lockedLog || []).filter(e => e.who === (characters.find(c => c.id === cid)?.name)).slice(-4);
             const memoryHint = ownTalks.length ? `【你的私下记忆】（别人不知道你知道这些）\n${ownTalks.map(e => `${e.day} 你与${e.npc || "某人"}私下谈过：${e.text}`).join("\n")}\n这些记忆影响你的言行（欲言又止/改变态度/私下行动），但不要主动透露内容。` : undefined;
-            const personaHint = declAgent?.persona ? `【你的模组内人设】（以此身份行动，覆盖角色卡的现代设定）\n时代：${declAgent.persona.era}\n身份：${declAgent.persona.occupation}——${declAgent.persona.background}\n性格不变的部分：${declAgent.persona.keepTraits}\n${declAgent.persona.changes ? `时代调整：${declAgent.persona.changes}\n` : ""}你的言行、物品、习惯都必须属于这个时代，不要出现时代外元素。` : undefined;
+            const personaHint = declAgent?.persona ? `【你的模组内处境】（你是以你自己的性格在游玩这个模组，绝不是在扮演别人！）\n时代背景：${declAgent.persona.era}\n模组内身份处境：${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格保持：${declAgent.persona.keepTraits}\n【角色本性铁律·最高优先级】你必须100%保留自己原本的性格、脾气、说话语气、自称与口癖，做出的反应和决定必须符合你自己的个性！模组只提供你身处的外部处境，哪怕你的真实反应会打破或改变模组原本的剧情走向也完全没关系，绝不要顺着模组预设演成另一个人！` : `【角色本性铁律·最高优先级】你是带着自己的性格与脾气亲自游玩这个模组，必须100%保留你原本的说话方式、自称、口癖和行事作风，做出的事必须符合你自己的性格，因此改变模组内容也完全没关系！`;
             // Fork: 该同伴的 HO 密档线（只有TA和KP知道；入团前剧情+私人关系+事件预告）
             const myHoCode = save.boundLineHo?.[cid];
             const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
-            const lineHint = myLine ? `【你的私人密档线】（只有你和KP知道，其他调查员一无所知——不要主动透露）\n入团前：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n你的私人关系：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}${myLine.events.length ? `\n你有专属剧情线，触发时机由KP安排（${myLine.events.map(e => e.trigger).join("、")}）——届时按你对该NPC的真实态度演出` : ""}` : undefined;
+            const lineHint = myLine ? `【你的模组处境背景（${myLine.ho}）】（这是你在模组中遭遇的客观处境，只有你和KP知道——面对这些处境时，必须用你自己原本的性格和态度去应对，不要被模组文本改变你的说话方式与性格）\n入团前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}${myLine.events.length ? `\n后续可能触发的个人线事件（${myLine.events.map(e => e.trigger).join("、")}）——届时按你自己的真实性格和脾气做出反应，不必顺从模组预设` : ""}` : undefined;
+            const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
+            const oocHint = recentOoc.length ? `【皮下交流共识·重要】（刚才你和{{user}}在皮下吐槽/商量了以下内容，请在接下来的游玩、说话语气和行动宣言中直接把这些沟通结果体现出来！）\n${recentOoc.map(m => m.speaker === "__user__" ? `${playerName}（皮下对你说）：${m.text}` : `${m.speaker}（你的皮下回应）：${m.text}`).join("\n")}` : undefined;
               // Fork 拆场: companion only sees messages from their own scene (locked always hidden, scene:X passes only for members at that node)
             const locName = nodeMap.get(declAgent?.currentNodeId || save.currentNodeId)?.name || "";
             const sceneFilteredLog = streamRef.current.filter(m => {
@@ -1009,8 +1015,8 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
               return sc === `scene:${locName}`;
             });
             const decl = await companionDeclare(cid, apiConfig, sceneFilteredLog, save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
-              ...(save.agentSecrets?.[cid] ? { secretHint: `【你的秘密】${save.agentSecrets[cid].content}（与真相的咬合点：${save.agentSecrets[cid].link}${save.agentSecrets[cid].informant ? `；${save.agentSecrets[cid].informant}知道更多——你可以私下找TA求证）` : "）"}\n这是只有你知道的事。平时言行可以露出破绽（欲言又止、回避话题、偷偷做小动作），但不要直接说破；何时摊牌由你决定。不要在宣言里向队友透露秘密内容，除非你决定此刻公开它。` } : {}),
-              ...((personaHint || lineHint) ? { personaHint: [personaHint, lineHint].filter(Boolean).join("\n\n") } : {}),
+              ...(save.agentSecrets?.[cid] ? { secretHint: `【你的秘密】${save.agentSecrets[cid].content}（与真相的咬合点：${save.agentSecrets[cid].link}${save.agentSecrets[cid].informant ? `；${save.agentSecrets[cid].informant}知道更多——你可以私下找TA求证）` : "）"}\n这是只有你知道的事。何时摊牌由你决定。` } : {}),
+              ...((personaHint || lineHint || oocHint) ? { personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") } : {}),
               ...(memoryHint ? { memoryHint } : {}),
             });
 
@@ -1140,6 +1146,16 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       dmCtx.recentJournal = saveRef.current.journal.map(j => j.text);
       dmCtx.revealedDossier = save.revealedDossier || [];   // fork: 密档划账随裁决上下文注入
       dmCtx.splitGroups = splitGroups.length > 1 ? splitGroups : undefined;   // fork 拆场: 分场状态（>1 场时注入）
+      const recentOocForDm = streamRef.current.filter(m => m.type === "ooc").slice(-8);
+      dmCtx.oocNotes = recentOocForDm.length ? recentOocForDm.map(m => m.speaker === "__user__" ? `${playerName}：${m.text}` : `${m.speaker}：${m.text}`).join("\n") : undefined;
+      if (dmCtx.partyStatus) {
+        dmCtx.partyStatus.companions = save.agents
+          .filter(a => a.currentNodeId === save.currentNodeId)
+          .map(a => {
+            const ch = characters.find(c => c.id === a.characterId);
+            return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: ch?.personality ? ch.personality.slice(0, 500) : undefined };
+          });
+      }
       // Fork 拆场: remember where the player is this round — narration visibility splits along scene lines
       const myLocationName = nodeMap.get(save.currentNodeId)?.name || "";
 
@@ -2014,12 +2030,17 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       for (const a of save.agents.slice(0, 3)) {
         const ch = characters.find(c => c.id === a.characterId);
         if (!ch) continue;
+        const recentStoryContext = streamRef.current
+          .filter(m => m.type !== "system" && m.type !== "divider" && m.type !== "ooc")
+          .slice(-6)
+          .map(m => m.speaker ? `${m.speaker}: ${m.text}` : m.text)
+          .join("\n");
         const decl = await companionDeclare(a.characterId, apiConfig, [], undefined, a.affinity, {
-          instruction: `${oocHistory ? `以下是到目前为止的皮下吐槽记录（OOC）：\n${oocHistory}\n\n` : ""}现在是"皮下吐槽"时间（OOC）：你们暂时脱离角色，以你本人的身份和{{user}}闲聊——吐槽这个模组的剧情、刚才的剧情走向、KP的安排，或者随便聊。规则：
-- 你就是你（${ch.name}），不是任何调查员；说话方式用你平时的（与角色卡一致）
-- 谈到剧情时用"刚才那个剧情里/你那个角色"的说法
-- 1-3句就好，像朋友插话吐槽；不行动、不宣言、不检定（action 留空、skill_check 留空）
-- speech 就是你的吐槽内容`,
+          instruction: `${recentStoryContext ? `【刚才的跑团剧情片段】\n${recentStoryContext}\n\n` : ""}${oocHistory ? `【到目前为止的皮下交流记录（OOC）】\n${oocHistory}\n\n` : ""}现在是"皮下交流/吐槽"时间（OOC）：你和{{user}}正在一起游玩这个跑团模组，此刻你们在场外直接对话——可以吐槽剧情、商量接下来的行动方针、或者回应{{user}}对你刚才表现的意见（比如提醒你不要OOC、要按你原本的性格来演）。规则：
+- 你就是你本人（${ch.name}），说话方式、脾气、自称完全用你平时的（与角色卡一致）
+- 认真回应{{user}}刚才对你说的话；如果{{user}}提出接下来的行动建议或指出刚才演得不对劲，按你的性格回应并记在心里，在接下来的正式游玩中真正落实！
+- 1-3句自然对话，不推进场内动作、不掷骰（action 留空、skill_check 留空）
+- speech 就是你对{{user}}说的话`,
         });
         if (decl.speech && decl.speech !== "……") {
           const replyMsg: StreamMessage = { id: mkId(), type: "ooc", speaker: decl.speaker, text: decl.speech };
@@ -2166,7 +2187,12 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       if (!apiConfig?.apiKey) throw new Error("未找到API配置");
 
       const fmAgent = save.agents.find(a => a.characterId === characterId);
-      const fmPersona = fmAgent?.persona ? `【你的模组内人设】${fmAgent.persona.occupation}——${fmAgent.persona.background}（时代：${fmAgent.persona.era}；言行物品须属这个时代）` : undefined;
+      const fmOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
+      const fmOocHint = fmOoc.length ? `【皮下交流共识·重要】（刚才你和{{user}}在皮下吐槽/商量了以下内容，请在接下来的对话和行动中直接体现出来！）\n${fmOoc.map(m => m.speaker === "__user__" ? `{{user}}（皮下）：${m.text}` : `${m.speaker}（皮下）：${m.text}`).join("\n")}` : "";
+      const fmPersona = [
+        fmAgent?.persona ? `【你的模组内处境】${fmAgent.persona.occupation}——${fmAgent.persona.background}（必须100%保持你原本的性格、脾气、说话方式与自称，不要演成别人！）` : `【角色本性铁律】必须100%保持你原本的性格、脾气、说话方式与自称，做出的事必须符合你本人，改变模组剧情也没关系！`,
+        fmOocHint,
+      ].filter(Boolean).join("\n\n");
       const decl = await companionDeclare(characterId, apiConfig, sceneWallFilter(characterId), save.agents.length > 1 ? userIdentity : undefined, fmAgent?.affinity, {
         ...(save.agentSecrets?.[characterId] ? { secretHint: `【你的秘密】${save.agentSecrets[characterId].content}——是否透露、何时摊牌由你决定。` } : {}),
         ...(fmPersona ? { personaHint: fmPersona } : {}),
@@ -2565,8 +2591,21 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             </div>
           )}
           {streamMessages.some(m => m.type === "ooc") && showOocPanel && (
-            <div style={{ pointerEvents: "auto", background: "var(--c-adv-panel-bg)", borderRadius: 12, border: "1px solid rgba(140,200,255,0.25)", padding: "8px 10px", maxHeight: 140, overflowY: "auto", boxShadow: "0 2px 10px rgba(0,0,0,0.12)" }}>
-              <div style={{ fontSize: "calc(9px*var(--app-text-scale,1))", color: "rgba(140,200,255,0.8)", fontFamily: "monospace", letterSpacing: "0.12em", marginBottom: 4 }}>🎤 皮下吐槽（{streamMessages.filter(m => m.type === "ooc").length} 条）</div>
+            <div ref={oocPanelRef} style={{ pointerEvents: "auto", background: "var(--c-adv-panel-bg)", borderRadius: 12, border: "1px solid rgba(140,200,255,0.25)", padding: "8px 10px", maxHeight: 160, overflowY: "auto", boxShadow: "0 2px 10px rgba(0,0,0,0.12)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontSize: "calc(9px*var(--app-text-scale,1))", color: "rgba(140,200,255,0.8)", fontFamily: "monospace", letterSpacing: "0.12em" }}>🎤 皮下吐槽（{streamMessages.filter(m => m.type === "ooc").length} 条）</div>
+                <button
+                  type="button"
+                  onClick={() => { setShowOocPanel(false); setOocMode(false); }}
+                  style={{
+                    background: "rgba(140,200,255,0.12)", border: "1px solid rgba(140,200,255,0.25)",
+                    borderRadius: 6, padding: "2px 7px", color: "rgba(170,215,255,0.9)",
+                    fontSize: "calc(9px*var(--app-text-scale,1))", cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  ✕ 关闭
+                </button>
+              </div>
               {streamMessages.filter(m => m.type === "ooc").map(m => {
                 const isUser = m.speaker === "__user__";
                 const avatar = !isUser ? fullAvatarMap[m.speaker || ""] : undefined;
@@ -2800,7 +2839,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
               fontFamily: "monospace", letterSpacing: "0.1em", marginBottom: 4,
               textAlign: "center",
             }}>
-              {oocMode ? "🎤 皮下吐槽中 — 发送后同伴以本人身份插话（不影响剧情）" : freeMode ? "自由交流中 — 输入后点击角色头像发送" : inEvent ? "事件进行中" : ""}
+              {oocMode ? "🎤 皮下吐槽中 — 与角色场外交流（交流共识将体现在后续游玩中）" : freeMode ? "自由交流中 — 输入后点击角色头像发送" : inEvent ? "事件进行中" : ""}
             </div>
           )}
 
@@ -2876,7 +2915,14 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
                     }}>
                       <span style={{ fontSize: "calc(14px*var(--app-text-scale,1))" }}>🎲</span> 技能检定{checkSkill.trim() ? `（已选 ${checkSkill.trim()}）` : ""}
                     </button>
-                    <button type="button" onClick={() => { setPlusMenuOpen(false); setOocMode(prev => !prev); }} style={{
+                    <button type="button" onClick={() => {
+                      setPlusMenuOpen(false);
+                      setOocMode(prev => {
+                        const next = !prev;
+                        setShowOocPanel(next);
+                        return next;
+                      });
+                    }} style={{
                       display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 8,
                       border: "none", background: "transparent", color: oocMode ? "rgba(140,200,255,0.95)" : "var(--c-adv-text)",
                       fontSize: "calc(12px*var(--app-text-scale,1))", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
