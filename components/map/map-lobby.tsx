@@ -944,7 +944,7 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
                   let fname = `module-core-${Date.now()}.json`;
                   const gz = await gzipText(json);
                   if (gz && gz.byteLength < json.length) {
-                    blob = new Blob([gz], { type: "application/gzip" });
+                    blob = new Blob([gz as unknown as BlobPart], { type: "application/gzip" });
                     fname = `module-core-${Date.now()}.json.gz`;
                   } else {
                     blob = new Blob([json], { type: "application/json" });

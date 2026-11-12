@@ -452,29 +452,26 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       if (!place) return undefined;
       return allNodes.find(n => n.name === place) || allNodes.find(n => n.name.includes(place) || place.includes(n.name));
     };
-    {
-      const myLine = boundLines.find(l => l.ho === hoAssignMap["__player__"]);
-      const myNode = placeToNode(myLine?.introPlace);
-      if (myNode) scattered = { ...scattered, currentNodeId: myNode.id, currentNodeType: myNode.type, discoveredNodes: [...new Set([...scattered.discoveredNodes, myNode.id])], visitedNodes: [...new Set([...scattered.visitedNodes, myNode.id])] };
-      scattered = {
-        ...scattered,
-        agents: scattered.agents.map(a => {
-          const line = boundLines.find(l => l.ho === hoAssignMap[a.characterId]);
-          const node = placeToNode(line?.introPlace);
-          if (!node) return a;
-          return { ...a, currentNodeId: node.id, currentNodeType: node.type, discoveredNodes: [...new Set([...a.discoveredNodes, node.id])], visitedNodes: [...new Set([...a.visitedNodes, node.id])] };
-        }),
-      };
-    }
+    const myHo = hoAssignMap["__player__"];
+    const myLine = boundLines.find(l => l.ho === myHo) || save.investigatorLines?.find(l => l.ho === myHo);
+    const myNode = placeToNode(myLine?.introPlace);
+    if (myNode) scattered = { ...scattered, currentNodeId: myNode.id, currentNodeType: myNode.type, discoveredNodes: [...new Set([...scattered.discoveredNodes, myNode.id])], visitedNodes: [...new Set([...scattered.visitedNodes, myNode.id])] };
+    scattered = {
+      ...scattered,
+      agents: scattered.agents.map(a => {
+        const line = boundLines.find(l => l.ho === hoAssignMap[a.characterId]);
+        const node = placeToNode(line?.introPlace);
+        if (!node) return a;
+        return { ...a, currentNodeId: node.id, currentNodeType: node.type, discoveredNodes: [...new Set([...a.discoveredNodes, node.id])], visitedNodes: [...new Set([...a.visitedNodes, node.id])] };
+      }),
+    };
     persistSave(scattered);
     onSaveUpdate(scattered);
     setHoAssignOpen(false);
     pushMessages({ id: mkId(), type: "system", text: "🎭 HO 密档线已分配——KP 开始分发身份卡" });
     // Fork 导入阶段: visible banner so the user KNOWS introPhase is active (no more silent skip)
-    pushMessages({ id: mkId(), type: "location", text: `🎬 导入剧情阶段 — 你将在「${myNode?.name || placeToNode(myLine?.introPlace)?.name || "?"}」展开自己的故事，同伴各自在别处` });
+    pushMessages({ id: mkId(), type: "location", text: `🎬 导入剧情阶段 — 你将在「${myNode?.name || "?"}」展开自己的故事，同伴各自在别处` });
     // Player's own line → locked message right away (companions get theirs via lineHint during play)
-    const myHo = hoAssignMap["__player__"];
-    const myLine = save.investigatorLines?.find(l => l.ho === myHo);
     if (myLine) {
       pushMessages({
         id: mkId(), type: "narration", audience: ["locked"],
@@ -1138,6 +1135,9 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
       const continuation = await resolveRound(dmCtx, allDeclarations, apiConfig);
 
+      // Update Director
+      const ev = continuation as EventScene & { gained?: string[]; lost?: string[]; npcsInvolved?: string[]; moveTo?: string; worldEvents?: string[]; revealed?: string[] };
+
       // Fork 导入阶段: intro close-detection — when the player declares intent to converge
       // (动身/汇合/前往X) during their own intro, the intro ends: introPhase off, companions
       // converge to the act-1 stage location, and the module proper begins.
@@ -1158,9 +1158,6 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
           pushMessages({ id: mkId(), type: "system", text: `🎭 导入剧情落幕——诸位调查员各自的故事线在此交汇。第一幕「${skeleton.acts?.[0]?.title || "调查"}」正式开始，地点：${act1Node?.name || "?"}。` });
         }
       }
-
-      // Update Director
-      const ev = continuation as EventScene & { gained?: string[]; lost?: string[]; npcsInvolved?: string[]; moveTo?: string; worldEvents?: string[]; revealed?: string[] };
       if (ev.worldEvents?.length) setWorldEvents(ev.worldEvents);
       // Fork: 密档划账——本轮公开的密档条目记入总账（去重）
       if (ev.revealed?.length) {

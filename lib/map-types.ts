@@ -428,6 +428,8 @@ export type EventScene = {
   topics?: { label: string; skillHint?: string }[]; // fork: NPC talk topics (tappable → fills speech input)
   clues?: string[];                 // fork: key clues gained this round → archived to the clue board
   investigationDone?: boolean;      // fork: KP signals this location's investigation is complete (anti-idling)
+  introDone?: boolean;              // fork: intro phase completed
+  revealed?: string[];              // fork: revealed dossier items
   sideScenes?: { who: string; npc: string; intent?: string; summary?: string }[];  // fork 八期B: KP-directed private scenes (locked)
   affinityDelta?: Record<string, number>;  // character affinity changes
   journalEntry?: string;       // auto-added to journal

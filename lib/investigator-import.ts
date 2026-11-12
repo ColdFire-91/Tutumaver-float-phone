@@ -66,7 +66,7 @@ export async function importInvestigator(
   characterName: string,
   characterPersonality: string,
   skeleton: WorldSkeleton,
-  secret?: PersonalSecret,
+  secret: PersonalSecret | undefined,
   apiConfig: ApiConfig,
   hoOccupation?: string,
   hoFullLine?: string,          // Fork fix: the HO car-card text (intro+relations) — player & companions

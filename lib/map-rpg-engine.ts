@@ -996,6 +996,7 @@ export type DMSceneResult = {
   clues?: string[];
   investigationDone?: boolean;
   introDone?: boolean;
+  revealed?: string[];
   sideScenes?: { who: string; npc: string; intent?: string; summary?: string }[];
   cg?: string;
   bgm?: string;
@@ -1447,6 +1448,7 @@ export async function expandEvent(
     clues: dm.clues,
     investigationDone: dm.investigationDone,
     introDone: dm.introDone,
+    revealed: dm.revealed,
     sideScenes: dm.sideScenes,
     affinityDelta: {},
     journalEntry: dm.journal,
@@ -1849,6 +1851,7 @@ export async function resolveRound(
     clues: dm.clues,
     investigationDone: dm.investigationDone,
     introDone: dm.introDone,
+    revealed: dm.revealed,
     sideScenes: dm.sideScenes,
   };
 }
