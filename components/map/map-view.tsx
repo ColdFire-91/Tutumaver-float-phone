@@ -314,7 +314,11 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     let cancelled = false;
     (async () => {
       const apiConfigs = loadApiConfigs();
-      const apiConfig = apiConfigs.find(c => c.apiKey) || apiConfigs[0];
+      const bindings = loadBindingConfig();
+      const dmSlot = save.agents.length === 1
+        ? resolveBinding(bindings, save.agents[0].characterId, "adventure")
+        : resolveBinding(bindings, undefined, "adventure");
+      const apiConfig = (dmSlot?.apiConfigId ? apiConfigs.find(c => c.id === dmSlot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
       if (!apiConfig?.apiKey) return;
       const myName = userIdentity?.name || "调查员";
       const introSource = `${skeleton.world.name}：${skeleton.world.lore.slice(0, 260)}`;
@@ -360,7 +364,9 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             compLineObj.introStory ? `导入剧情：${compLineObj.introStory}` : "",
             compLineObj.relations.length ? `私人关系：${compLineObj.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : "",
           ].filter(Boolean).join("\n") : undefined;
-          const persona = await importInvestigator(name, ch?.personality || "", skeleton, save.agentSecrets?.[a.characterId], apiConfig, compHoOcc, compHoFull, false);
+          const compSlot = resolveBinding(bindings, a.characterId, "adventure");
+          const compApiConfig = (compSlot?.apiConfigId ? apiConfigs.find(c => c.id === compSlot.apiConfigId) : null) || apiConfig;
+          const persona = await importInvestigator(name, ch?.personality || "", skeleton, save.agentSecrets?.[a.characterId], compApiConfig, compHoOcc, compHoFull, false);
           if (!cancelled && persona) {
             persistSave({
               ...saveRef.current,
@@ -408,7 +414,11 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     setHoAssignLoading(true);
     try {
       const apiConfigs = loadApiConfigs();
-      const apiConfig = apiConfigs.find(c => c.apiKey) || apiConfigs[0];
+      const bindings = loadBindingConfig();
+      const dmSlot = save.agents.length === 1
+        ? resolveBinding(bindings, save.agents[0].characterId, "adventure")
+        : resolveBinding(bindings, undefined, "adventure");
+      const apiConfig = (dmSlot?.apiConfigId ? apiConfigs.find(c => c.id === dmSlot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
       if (!apiConfig?.apiKey) throw new Error("无API配置");
       const takenHo = Object.values(hoAssignMap)[0] || "";
       const freeLines = save.investigatorLines.filter(l => l.ho !== takenHo);

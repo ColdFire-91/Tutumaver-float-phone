@@ -177,7 +177,10 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
     const hasAny = secNpcText.trim() || secTruthText.trim() || secActText.trim() || secHoText.trim() || prev;
     if (!hasAny) return;
     const apiConfigs = loadApiConfigs();
-    const apiConfig = apiConfigs.find(c => c.apiKey) || apiConfigs[0];
+    const bindings = loadBindingConfig();
+    const firstChar = characters[0];
+    const slot = firstChar ? resolveBinding(bindings, firstChar.id, "adventure") : resolveBinding(bindings, undefined, "adventure");
+    const apiConfig = (slot?.apiConfigId ? apiConfigs.find(c => c.id === slot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
     if (!apiConfig?.apiKey) { setError("未找到有效的API配置，请先在设置中配置API"); return; }
     setExtracting(true);
     setError(null);
@@ -368,7 +371,7 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
     const apiConfigs = loadApiConfigs();
     const bindings = loadBindingConfig();
     const firstChar = characters[0];
-    const slot = firstChar ? resolveBinding(bindings, firstChar.id, "chat") : null;
+    const slot = resolveBinding(bindings, undefined, "adventure") || (firstChar ? resolveBinding(bindings, firstChar.id, "chat") : null);
     const apiConfig = (slot?.apiConfigId ? apiConfigs.find(c => c.id === slot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
     if (!apiConfig?.apiKey) { setError("未找到有效的API配置，请先在设置中配置API"); return; }
 
