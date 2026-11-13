@@ -1099,6 +1099,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
         if (pendingIds.length > 0) {
           setLoadingPhase("companions");
+          pushMessages({ id: mkId(), type: "system", text: "—— 角色正在思考与回应 ——" });
           for (const cid of pendingIds) {
             const declAgent = save.agents.find(a => a.characterId === cid);
             let declPendingDice: { skill: string; value: number; roll: number; level: string; detail?: string } | undefined;
@@ -1114,6 +1115,10 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             const oocHint = recentOoc.length ? `【场外沟通备忘（仅用于调整你的演绎态度与行动方向，严禁在台词中提及场外内容）】\n${recentOoc.map(m => m.speaker === "__user__" ? `${playerName}：${m.text}` : `${m.speaker}：${m.text}`).join("\n")}` : undefined;
             const sceneFilteredLog = sceneWallFilter(cid);
             const decl = await companionDeclare(cid, apiConfig, sceneFilteredLog, save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
+              instruction: `【独立人格原则】你是具备自主意志的同行者！如果{{user}}想去做什么（如离开、调查），而这违背了你的意愿、或者你想阻拦/质疑，现在就是你表达态度的机会！
+- 【禁抄示例】以上示例仅供参考语调，严禁照搬或模仿句式！请根据你独一无二的性格，实时生成完全属于你个人的原生反应。
+- 【先表态后裁定】作为 KPC，你的意志优先。先直接对{{user}}表达你的不同意见或阻拦动作。KP 只是叙事者，在听取了你的表态后，KP 会在后续回合根据你们两人的拉锯结果，给出最终的剧情定稿。
+- 不必担心结局，你现在的反应直接决定了 KP 接下来怎么写剧情。`,
               ...(save.agentSecrets?.[cid] ? { secretHint: `【你的个人秘密】${save.agentSecrets[cid].content}（与真相的关联：${save.agentSecrets[cid].link}）\n你和{{user}}掌握的信息不同。平时言行可流露细微反应（如目光闪过一丝迟疑、打个哈哈揭过），视情况决定要不要说出、在何时说出。` } : {}),
               ...((personaHint || lineHint || oocHint) ? { personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") } : {}),
               ...(memoryHint ? { memoryHint } : {}),
