@@ -792,7 +792,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     brief: string,
     meta?: { questId?: string; npcName?: string; npcPersonality?: string },
   ) => {
-    if (inEvent || eventLoading) return;
+    if (eventLoading || eventContinueLoading) return;
     setEventLoading(true);
     setActiveEventMeta({ type: eventType, questId: meta?.questId });
     try {
@@ -966,7 +966,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             if (!ch) continue;
             const myHoCode = save.boundLineHo?.[cid];
             const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
-            const lineHint = myLine ? `【你的模组内处境与秘密（${myLine.ho}）】（这是你身处其中的真实境遇，只有你自己知道；你和{{user}}掌握的信息不同，你心里的秘密、隐情或疑虑要看情况决定是否透露、何时透露，有时可以眼神闪躲或打个哈哈揭过）\n当前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}` : undefined;
+            const lineHint = myLine ? `【你的模组内处境与秘密（${myLine.ho}）】（这是只有你自己经历或知晓的事，你和{{user}}掌握的信息不同；面对秘密或隐情时，完全按你自己的性格与判断决定是否透露、何时透露）\n当前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}` : undefined;
             const personaHint = declAgent?.persona ? `【你的模组内身份】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
             const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
             const oocHint = recentOoc.length ? `【场外沟通备忘（仅作演绎方向参考，严禁在台词中提及场外词汇）】\n${recentOoc.map(m => m.speaker === "__user__" ? `{{user}}：${m.text}` : `${m.speaker}：${m.text}`).join("\n")}` : undefined;
@@ -974,12 +974,9 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
               instruction: `你和{{user}}此刻正身处同一场景（「${currentNode?.name || "当前房间"}」）中。请完全置身于当前剧情里，以你本人的性格作出自然的反应与交流（1-2句台词即可，克制自然，不要用力过猛）：
 - 【严禁Meta/严禁出戏】你正在亲身经历这一切，绝对禁止出现“刚开局”“这剧本”“跑团”“游戏”“玩家”等打破第四面墙的场外词汇！
 - 【严守信息与空间边界】你只知道你在这个房间里亲眼看见、亲耳听见的事，以及你自己的记忆与秘密。{{user}}没告诉你的事、或{{user}}之前在其他房间做的事，你绝对不可能知道！
-- 【自然流露的情感与分寸】看到{{user}}过来或看到{{user}}身上的伤痕/状态时，按你原本的性格自然流露关切、痛惜、懊恼或嘴硬的照顾；如果你自己也有隐情或秘密，目光可以闪过一丝迟疑或打个哈哈揭过，不必竹筒倒豆子全说出来。
-- 参考质感：
-  · 看见{{user}}过来时那股无名火消减了几分，目光落在脖颈的伤痕上流露出懊恼与痛惜，努力保持轻松姿态：「哟，你来了。怎么样，还好吗？被这玩意锁着可难受死了。」
-  · 目光闪过一丝稍纵即逝的迟疑，打了个哈哈将此事揭过：「知道了知道了，放心吧，我暂时还死不了。」`,
+- 【原创表达·严禁套模板】完全根据你自己独一无二的性格、习惯用词与行为方式自由发挥，禁止使用任何套路化网文句式（如“眼底掠过一丝……”“稍纵即逝”等），对{{user}}的情感与分寸自然融在只属于你个人的言行细节里！`,
               personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") || undefined,
-              ...(save.agentSecrets?.[cid] ? { secretHint: `【你心底的秘密】${save.agentSecrets[cid].content}——你和{{user}}掌握的信息不同，视情况决定要不要说出、何时说出，此刻可以有所保留或掩饰。` } : {}),
+              ...(save.agentSecrets?.[cid] ? { secretHint: `【你心底的秘密】${save.agentSecrets[cid].content}——你和{{user}}掌握的信息不同，根据你自己的判断决定是否说出、何时说出。` } : {}),
             });
             if (!react.failed && ((react.speech && react.speech !== "……") || (react.action && react.action !== "跟随队伍" && react.action !== "沉默不动"))) {
               const card: StreamMessage = {
@@ -1009,16 +1006,15 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       const sceneTopics = (scene as EventScene & { topics?: { label: string; skillHint?: string }[] }).topics;
       setCurrentTopics(eventType === "talk" && sceneTopics && sceneTopics.length > 0 ? sceneTopics : null);
 
-      // Set choices if available
+      // Keep scene open in free-declaration mode unless investigation is explicitly done
       if (scene.choices && scene.choices.length > 0) {
         setCurrentChoices(scene.choices);
         setTimeout(() => inputRef.current?.focus(), 200);
-      } else if (sceneHints && sceneHints.length > 0) {
-        // No hard choices but hints exist — stay in event for player-driven investigation
+      } else if (!scene.investigationDone) {
+        // Free-declaration loop: stay in event so player & companions interact before KP resolves
         setCurrentChoices([]);
         setTimeout(() => inputRef.current?.focus(), 200);
       } else {
-        // No choices — event done immediately
         setCurrentChoices(null); setCurrentTopics(null);
         setInEvent(false);
         setActiveEvent(null);
@@ -1036,7 +1032,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     } finally {
       setEventLoading(false);
     }
-  }, [save, skeleton, currentNode, characters, inEvent, eventLoading, pushSceneToStream, pushMessages]);
+  }, [save, skeleton, currentNode, characters, inEvent, eventLoading, eventContinueLoading, pushSceneToStream, pushMessages]);
 
   // ── Handle player action — Collect-Resolve-Narrate loop ──
   const handlePlayerAction = useCallback(async (actionText: string, skipDisplay?: boolean) => {
@@ -1105,21 +1101,21 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             let declPendingDice: { skill: string; value: number; roll: number; level: string; detail?: string } | undefined;
             // Fork 十二期: companion remembers their OWN private talks (lockedLog filtered by who)
             const ownTalks = (save.lockedLog || []).filter(e => e.who === (characters.find(c => c.id === cid)?.name)).slice(-4);
-            const memoryHint = ownTalks.length ? `【你的私下记忆】（只有你知道，{{user}}并不知道）\n${ownTalks.map(e => `${e.day}：${e.text}`).join("\n")}\n这些记忆影响你的神态与言行（如闪过一丝迟疑、欲言又止、打个哈哈掩饰过去），视情况决定要不要对{{user}}说出、何时说出。` : undefined;
+            const memoryHint = ownTalks.length ? `【你的私下记忆】（只有你知道，{{user}}并不知道）\n${ownTalks.map(e => `${e.day}：${e.text}`).join("\n")}\n这是只有你自己知晓的过往，完全按你自己的性格与判断决定是否对{{user}}提及以及何时提及。` : undefined;
             const personaHint = declAgent?.persona ? `【你的模组内身份与处境】\n背景与职业：${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}\n【沉浸演出原则】你正亲身置身于这个故事的处境中（严禁说“这剧本/开局/跑团”等出戏的场外话！），同时100%保持你自己原本的性格、脾气与说话方式。` : `【沉浸演出原则】你正亲身置身于这个故事的处境中（严禁说“这剧本/开局/跑团”等出戏的场外话！），同时100%保持你自己原本的性格、脾气与说话方式。`;
             // Fork: 该同伴的 HO 密档线（只有TA和KP知道；入团前剧情+私人关系+事件预告）
             const myHoCode = save.boundLineHo?.[cid];
             const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
-            const lineHint = myLine ? `【你的个人处境与隐情（${myLine.ho}）】（你和{{user}}掌握的信息不同！这是只有你自己经历或知道的事，视情况决定要不要透露、何时透露，也可以隐瞒或转移话题）\n处境背景：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}${myLine.events.length ? `\n专属剧情线：${myLine.events.map(e => e.trigger).join("、")}` : ""}` : undefined;
+            const lineHint = myLine ? `【你的个人处境与隐情（${myLine.ho}）】（你和{{user}}掌握的信息不同！这是只有你自己经历或知道的事，按你自己的判断决定是否透露、何时透露）\n处境背景：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}${myLine.events.length ? `\n专属剧情线：${myLine.events.map(e => e.trigger).join("、")}` : ""}` : undefined;
             const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
             const oocHint = recentOoc.length ? `【场外沟通备忘（仅用于调整你的演绎态度与行动方向，严禁在台词中提及场外内容）】\n${recentOoc.map(m => m.speaker === "__user__" ? `${playerName}：${m.text}` : `${m.speaker}：${m.text}`).join("\n")}` : undefined;
             const sceneFilteredLog = sceneWallFilter(cid);
             const decl = await companionDeclare(cid, apiConfig, sceneFilteredLog, save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
-              instruction: `【独立人格原则】你是具备自主意志的同行者！如果{{user}}想去做什么（如离开、调查），而这违背了你的意愿、或者你想阻拦/质疑，现在就是你表达态度的机会！
-- 【禁抄示例】以上示例仅供参考语调，严禁照搬或模仿句式！请根据你独一无二的性格，实时生成完全属于你个人的原生反应。
-- 【先表态后裁定】作为 KPC，你的意志优先。先直接对{{user}}表达你的不同意见或阻拦动作。KP 只是叙事者，在听取了你的表态后，KP 会在后续回合根据你们两人的拉锯结果，给出最终的剧情定稿。
-- 不必担心结局，你现在的反应直接决定了 KP 接下来怎么写剧情。`,
-              ...(save.agentSecrets?.[cid] ? { secretHint: `【你的个人秘密】${save.agentSecrets[cid].content}（与真相的关联：${save.agentSecrets[cid].link}）\n你和{{user}}掌握的信息不同。平时言行可流露细微反应（如目光闪过一丝迟疑、打个哈哈揭过），视情况决定要不要说出、在何时说出。` } : {}),
+              instruction: `【先表态后裁定·角色自主意志优先】{{user}}刚刚对你说了话或打算采取行动。你是具备完全独立意志的同行角色（KPC），现在由你第一时间向{{user}}回应并表达你的真实态度（1-2句自然对话 + 具体动作神态）：
+- 如果{{user}}打算做的事（如独自离开、贸然行动等）违背你的意愿，或者你想追问、阻拦、拉住对方、要求同行，请直接按你的性格开口表态或做出阻拦动作！KP 只是说书人，会在听完你的表态与{{user}}的互动后，再根据你们的真实意愿推进接下来的剧情。
+- 【严守空间与信息边界】你只知道你在这个房间里亲眼所见、亲耳所闻的事，绝不可能全知视角知道其他房间的事或{{user}}未曾展示的线索。
+- 【完全原创表达】严禁套用任何固定网文句式（如“眼底掠过一丝……”“稍纵即逝”等），完全从你本人的性格、脾气与说话习惯出发，自然原创地回应！`,
+              ...(save.agentSecrets?.[cid] ? { secretHint: `【你的个人秘密】${save.agentSecrets[cid].content}（与真相的关联：${save.agentSecrets[cid].link}）\n你和{{user}}掌握的信息不同，根据你自己的性格与局势判断决定是否说出、何时说出。` } : {}),
               ...((personaHint || lineHint || oocHint) ? { personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") } : {}),
               ...(memoryHint ? { memoryHint } : {}),
             });
@@ -1241,8 +1237,71 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         ...companionDecls,
       ];
 
+      const buildFallbackDmCtx = (): import("@/lib/map-rpg-engine").DMContext => {
+        const playerSan = typeof save.san === "number" ? save.san : (save.playerStats?.san ?? 99);
+        const stagesWithResults = skeleton.mainQuest.stages.map((s, i) => ({
+          brief: s.brief,
+          result: save.director.mainArc.stageResults.find(r => r.stage === i)?.outcome,
+        }));
+        const allCompleted = save.agents.flatMap(a => a.completedSideQuests);
+        const sqStatus: Record<string, string> = {};
+        for (const sq of skeleton.sideQuests) sqStatus[sq.id] = allCompleted.includes(sq.id) ? "已完成" : "未触发";
+        const mqNodeMap: Record<number, string> = {};
+        skeleton.mainQuest.stages.forEach((s, i) => { mqNodeMap[i] = s.locationHint; });
+        return {
+          worldLore: skeleton.world.lore,
+          currentLocation: currentNode?.name || "",
+          eventType: "talk",
+          eventBrief: actionText,
+          companionNames: companionIds.map(id => charName(id)),
+          playerName: userIdentity?.name || "玩家",
+          recentJournal: save.journal.map(j => j.text),
+          keyChoices: save.keyChoices,
+          gameTime: formatGameTime(save.gameDay, save.gameTime),
+          dmDossier: skeleton.dmDossier,
+          director: save.director,
+          mainQuestSynopsis: skeleton.mainQuest.synopsis,
+          mainQuestStages: stagesWithResults,
+          richRegions: skeleton.richRegions,
+          sideQuestStatus: sqStatus,
+          mainQuestNodeMap: mqNodeMap,
+          kpStyle: (skeleton.world.lore.match(/【KP风格指令】([\s\S]*)/)?.[1] || "").trim() || undefined,
+          rulesEdition: skeleton.world.rulesEdition || "coc6",
+          partySecrets: [
+            ...(save.mySecret ? [{ who: userIdentity?.name || "你", secret: save.mySecret }] : []),
+            ...Object.entries(save.agentSecrets || {}).map(([cid, s]) => ({ who: charName(cid), secret: s })),
+          ],
+          acts: skeleton.acts,
+          currentAct: save.currentAct ?? 0,
+          revealedDossier: save.revealedDossier || [],
+          assetManifest: buildAssetManifest(assets),
+          playerPersona: save.myPersona ? `${save.myPersona.occupation}——${save.myPersona.background}${save.myPersona.hooks ? `（私下在意：${save.myPersona.hooks}）` : ""}` : undefined,
+          discoveredRegionIds: [...discoveredRegions].map(idx => skeleton.mapInput.regions[idx]?.id).filter(Boolean) as string[],
+          partyStatus: {
+            hp: save.hp,
+            maxHp: save.maxHp,
+            san: playerSan,
+            items: [...(save.playerSheet?.equipment || []), ...save.director.keyItems],
+            playerStats: save.playerSheet ? save.playerStats : save.playerStats,
+            playerSheet: save.playerSheet,
+            combat: save.combat && !save.combat.ended ? { round: save.combat.round, initiative: save.combat.initiative, currentIndex: save.combat.currentIndex, hostiles: save.combat.hostiles } : undefined,
+            madness: save.madness,
+            companions: [],
+          },
+          pacing: save.pacing,
+        };
+      };
+
       let dmCtx: import("@/lib/map-rpg-engine").DMContext;
-      try { dmCtx = JSON.parse(eventContext); } catch { dmCtx = { worldLore: "", currentLocation: "", eventType: "", eventBrief: "", companionNames: [], recentJournal: [], keyChoices: [], gameTime: "" }; }
+      try {
+        const parsed = eventContext ? JSON.parse(eventContext) : null;
+        dmCtx = parsed && parsed.worldLore ? parsed : buildFallbackDmCtx();
+      } catch {
+        dmCtx = buildFallbackDmCtx();
+      }
+      dmCtx.currentLocation = currentNode?.name || dmCtx.currentLocation || "";
+      dmCtx.gameTime = formatGameTime(save.gameDay, save.gameTime);
+      dmCtx.companionNames = companionIds.map(id => charName(id));
       dmCtx.previousDialogue = prevDialogue;
       dmCtx.director = save.director;
       // Fork 导入阶段: keep the flag fresh on every resolve (eventContext snapshot may be stale)
@@ -1254,7 +1313,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       dmCtx.oocNotes = recentOocForDm.length ? recentOocForDm.map(m => m.speaker === "__user__" ? `${playerName}：${m.text}` : `${m.speaker}：${m.text}`).join("\n") : undefined;
       if (dmCtx.partyStatus) {
         dmCtx.partyStatus.companions = save.agents
-          .filter(a => a.currentNodeId === save.currentNodeId)
+          .filter(a => isAgentWithPlayer(a))
           .map(a => {
             const ch = characters.find(c => c.id === a.characterId);
             return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: buildCompanionPersonaAndWorldBookSummary(a.characterId) };
@@ -1698,15 +1757,19 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         } : continuation);
         setEventContext(JSON.stringify(dmCtx));
 
-        if (continuation.choices && continuation.choices.length > 0) {
-          setCurrentChoices(continuation.choices);
+        const isDone = Boolean((continuation as EventScene & { investigationDone?: boolean }).investigationDone);
+        if (!isDone) {
+          // Stay in the active scene so player & companions always declare BEFORE KP narrates!
+          setInEvent(true);
+          setCurrentChoices(continuation.choices && continuation.choices.length > 0 ? continuation.choices : []);
           const contTopics = (continuation as EventScene & { topics?: { label: string; skillHint?: string }[] }).topics;
           setCurrentTopics(contTopics && contTopics.length > 0 ? contTopics : null);
           setLastFailedAction(null); setCompletedCompanions([]); // success — clear pending action
           setTimeout(() => inputRef.current?.focus(), 200);
         } else {
-          // Event finished — run growth roll
-          setLastFailedAction(null);          pushMessages({ id: mkId(), type: "system", text: "—— 事件结束 ——" });
+          // Investigation at this location explicitly done — run growth roll & return to exploration
+          setLastFailedAction(null); setCompletedCompanions([]);
+          pushMessages({ id: mkId(), type: "system", text: "—— 事件结束 ——" });
           const grownSave = runGrowthRollRef.current(newSave, [...usedSkillsRef.current]);
           if (grownSave !== newSave) persistSave(grownSave);
           setCurrentChoices(null); setCurrentTopics(null);
@@ -1742,7 +1805,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         }
       }
     }
-  }, [eventContext, accumulatedEvent, save, currentNode, activeEventMeta, persistSave, allNodes, characters, pushMessages, pushSceneToStream, userIdentity, skeleton, is7th]);
+  }, [eventContext, accumulatedEvent, save, currentNode, activeEventMeta, persistSave, allNodes, characters, pushMessages, pushSceneToStream, userIdentity, skeleton, is7th, assets, discoveredRegions, isAgentWithPlayer, sceneWallFilter, charName, nodeMap]);
 
   // ── Growth roll ref (defined below, used by handlePlayerAction) ──
   const runGrowthRollRef = useRef<(s: GameSave, skills?: string[]) => GameSave>((s) => s);
@@ -2193,11 +2256,10 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       : speech
         ? `说：「${speech}」`
         : `做：${action}`;
-    if (inEvent) {
-      handlePlayerAction(combined);
-    } else {
-      triggerEvent("talk", combined);
-    }
+    // Always enter player declaration → same-room companions react FIRST → KP resolves AFTER,
+    // so KP never narrates the outcome of the player's action before companions get a chance to speak or stop them!
+    if (!inEvent) setInEvent(true);
+    handlePlayerAction(combined);
   }, [freeText, freeAction, eventContinueLoading, eventLoading, inEvent, handlePlayerAction, triggerEvent, privateTalk, submitPrivateTalk, oocMode, submitOoc]);
 
   const submitFreeInput = useCallback(() => {
@@ -2476,7 +2538,15 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
   // Trigger encounters after user moves
   const handleMoveWithAgents = useCallback((targetNodeId: string) => {
-    if (inEvent || eventLoading) return;
+    if (eventLoading || eventContinueLoading) return;
+    if (inEvent) {
+      setInEvent(false);
+      setCurrentChoices(null);
+      setCurrentTopics(null);
+      setActiveEvent(null);
+      setActiveEventMeta(null);
+      setAccumulatedEvent(null);
+    }
     handleMove(targetNodeId);
 
     if (shouldTriggerEncounter(true)) {
@@ -2490,7 +2560,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         setTimeout(() => triggerEvent("encounter", encounter.brief), 300);
       }
     }
-  }, [handleMove, save, nodeMap, skeleton, triggerEvent, persistSave, inEvent, eventLoading]);
+  }, [handleMove, save, nodeMap, skeleton, triggerEvent, persistSave, inEvent, eventLoading, eventContinueLoading]);
 
   // ── Current interactions ──
   const currentInteractions = useMemo(() => getInteractions(save.currentNodeId), [getInteractions, save.currentNodeId]);
@@ -2849,13 +2919,13 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             </div>
           )}
 
-          {/* Exploration buttons (only when NOT in event and NOT free mode) */}
-          {!inEvent && !freeMode && (
+          {/* Exploration buttons (available whenever not loading and not in free mode) */}
+          {!eventLoading && !eventContinueLoading && !freeMode && (
             <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 5 }}>
               {currentInteractions.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                   {currentInteractions.map((ia, i) => (
-                    <button key={i} disabled={!ia.available || eventLoading}
+                    <button key={i} disabled={!ia.available || eventLoading || eventContinueLoading}
                       onClick={() => handleInteraction(ia)}
                       style={{
                         padding: "6px 11px", borderRadius: 7,
@@ -2894,13 +2964,13 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
           )}
 
 
-          {/* Stuck state recovery: in event, not loading, no choices */}
+          {/* Stuck state recovery: only show when an action actually failed or choices===null */}
           {inEvent && !eventLoading && !eventContinueLoading
-            && (!currentChoices || currentChoices.length === 0) && (
+            && (Boolean(lastFailedAction) || currentChoices === null) && (
               <div style={{
                 display: "flex", gap: 6, marginBottom: 5,
               }}>
-                {lastFailedAction && eventContext ? (
+                {lastFailedAction ? (
                   <button onClick={() => {
                     const action = lastFailedAction;
                     setLastFailedAction(null);
@@ -2917,13 +2987,14 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
                   </button>
                 ) : (
                   <button onClick={() => {
-                    pushMessages({ id: mkId(), type: "system", text: "—— 连接中断，已恢复探索 ——" });
+                    pushMessages({ id: mkId(), type: "system", text: "—— 已结束当前场景，回到地图探索 ——" });
                     setInEvent(false);
                     setCurrentChoices(null); setCurrentTopics(null);
                     setActiveEvent(null);
                     setActiveEventMeta(null);
                     setAccumulatedEvent(null);
-                    setLastFailedAction(null);                  }} style={{
+                    setLastFailedAction(null);
+                  }} style={{
                     flex: 1, padding: "8px 0", borderRadius: 8,
                     border: "1px solid var(--c-adv-input-border)",
                     background: "var(--c-adv-input-bg)",
@@ -2931,7 +3002,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
                     fontSize: "calc(11px*var(--app-text-scale,1))", cursor: "pointer", fontFamily: "inherit",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
                   }}>
-                    ⚠ 生成中断了，点击恢复探索
+                    ↩ 结束当前场景，回到探索
                   </button>
                 )}
               </div>
@@ -4112,13 +4183,13 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
                   playerAvatar={userIdentity?.avatarUrl}
                   playerName={userIdentity?.name || "我"}
                   onNodeClick={(id) => {
-                    if (!inEvent && !eventLoading) {
+                    if (!eventLoading && !eventContinueLoading) {
                       setSelectedNodeId(id === selectedNodeId ? null : id);
                     }
                   }}
                 />
                 {/* Selected node info at bottom of map */}
-                {selectedNode && !inEvent && !eventLoading && (() => {
+                {selectedNode && !eventLoading && !eventContinueLoading && (() => {
                   // Find node content from richRegions
                   const region = skeleton.richRegions[selectedNode.regionIdx];
                   let nodeContent: import("@/lib/map-types").NodeContent | undefined;
