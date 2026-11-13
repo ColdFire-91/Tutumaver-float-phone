@@ -7,23 +7,38 @@ import { simpleLLMCall } from "./api-helpers";
 import type { InvestigatorPersona, PersonalSecret, WorldSkeleton } from "./map-types";
 import { OCCUPATIONS } from "./coc-sheet";
 
-const IMPORT_PROMPT = `你是COC跑团的主持人助手。一位玩家带着自己的角色卡加入模组，但角色卡的设定与模组时代/世界观可能不匹配（比如角色卡是现代人，模组是1920年代或古代）。你需要为TA生成"模组内人设"：贴合时代、贴合模组、但保留角色卡的核心性格。
+const IMPORT_PROMPT = `你是COC跑团的主持人助手。一位同行角色带着自己的角色卡加入模组，但角色卡的设定与模组时代/世界观可能不匹配（比如角色卡是现代人，模组是1920年代或古代）。你需要为TA生成"模组内人设"：贴合时代、贴合模组表面背景、但100%保留角色卡的核心性格。
 
 只输出标签块纯文本，不要JSON：
 [名字]严格保留角色卡原名，禁止翻译或改名
 [时代职业]这个时代里TA是什么职业（必须是该时代真实存在的职业；角色卡职业若时代不符，转成最接近的时代等价物：现代警察→1920年代治安官/民国巡捕/古代捕快；网络主播→报社记者/说书人；程序员→电报员/账房先生。参考候选：{occ_pool}）
 [技能模板]上面候选职业之一（系统按它分配技能组；写与TA最贴的那个职业名，必须严格等于候选之一）
-[身份背景]TA在这个时代的身份与来此缘由（2-4句：做什么的、为什么卷入这次调查、与队伍如何相识）
-[性格保持]角色卡里不变的部分（2-3句：核心性格、说话方式、口头禅、与{{user}}的关系基调）
+[身份背景]TA在这个时代的公开身份与来此缘由（2-4句：做什么的、为什么卷入这次事件、与玩家角色如何相识。严禁剧透模组黑幕！）
+[性格保持]角色卡里不变的部分（2-3句：核心性格、说话方式、口头禅、与玩家角色的关系基调）
 [时代调整]原设定到模组设定的对应关系（1-2句，如"原设定的手机改为随身怀表与笔记本"）
-[背景钩子]TA与本次调查的私人连接（1-2句：TA为什么在意这个案子——原因必须能自然解释TA加入调查，且可与其性格呼应）
-[拿卡反应]TA拿到身份卡那一刻的第一人称感叹（1-2句，体现"我接下来要扮演的人居然是……"的错愕或兴奋：TA读出卡上的职业并用自己的口吻反应。用TA的性格和说话方式——傲娇会别扭、老成会感慨、元气会兴奋。不要旁白腔）
+[背景钩子]TA与本次调查的表面连接（1-2句：TA为什么在意这件事——原因必须自然且不泄底模组真相）
+[拿卡反应]TA拿到身份卡那一刻的第一人称感叹（1-2句，体现TA读出卡上的职业并用自己平时口吻反应，不要旁白腔）
 
 要求：
-- 性格、说话方式、与{{user}}的关系必须忠于角色卡，禁止重写人格
-- 时代职业、生活方式、物品全部时代化，禁止出现不属于该时代的元素
-- 背景钩子要具体（与模组开头的地点/事件/失踪者有关联更好），不要"命运指引"这类空话
-- [拿卡反应]必须是第一人称台词（可带语气词），像玩家看到卡的那一瞬脱口而出`;
+- 性格、说话方式、与玩家角色的关系必须忠于角色卡，禁止重写人格
+- 严禁在任何字段中泄露模组真相/黑幕
+- [拿卡反应]必须是第一人称台词（可带语气词）`;
+
+const PLAYER_IMPORT_PROMPT = `你是COC跑团的主持人助手。现在为【玩家本人（PC）】生成模组内的调查员身份卡。
+【最高铁律：玩家本人就是「{player_name}」，绝对禁止出现第三个人！】
+- 「{player_name}」就是玩家（PC）自己的名字！**你就是{player_name}，{player_name}就是你！**
+- **绝对禁止**在文本中出现 \`{{user}}\`、\`玩家\`，更**绝对禁止**写出“你与{player_name}是朋友”“面对{{user}}时你是值得信赖的同伴”这种把玩家自己拆成两个人的荒谬话！
+- 所有字段一律用第二人称“你”直接指代{player_name}本人；如果团队里有同行角色（KPC），直接写“你与某某（同行角色名）”，全队只有你（{player_name}）和同行角色，没有第三者！
+- **严禁剧透黑幕**：只写玩家开局知晓的日常/表面处境与异常苗头，绝对禁止在身份卡里透露模组幕后真相、外神名或世界本质！
+
+只输出标签块纯文本，不要JSON：
+[名字]{player_name}
+[时代职业]你在这个时代里的职业（参考候选：{occ_pool}；若玩家原有人设已有合适职业则优先沿用或做时代等价转换）
+[技能模板]上面候选职业之一（必须严格等于候选之一）
+[身份背景]你（{player_name}）在这个时代的身份与日常处境（2-4句，用第二人称“你”书写：你是做什么的、平日生活如何、与同行角色是什么关系、因何察觉到日常中的一丝违和。严禁出现“{{user}}”或把{player_name}当成别人！）
+[性格保持]你（{player_name}）的性格特质与处事方式（2-3句，用第二人称“你”书写你自己的性格，禁止写“面对{{user}}时你是……”！）
+[时代调整]原设定随身物品到模组时代的对应调整（1-2句）
+[背景钩子]你（{player_name}）与本次事件的第一人称私人连接（1-2句：你最近察觉到了什么表面异样而在意此事，严禁剧透真相底牌）`;
 
 const PROMPT_SECRET_BLOCK = `
 
@@ -75,9 +90,14 @@ export async function importInvestigator(
   hoFullLine?: string,          // Fork fix: the HO car-card text (intro+relations) — player & companions
   isPlayer?: boolean,           // Fork fix: player card writes in 2nd person; companion card in 3rd
 ): Promise<InvestigatorPersona | null> {
-  const eraGuess = skeleton.world.lore.slice(0, 120) || skeleton.world.name;
+  // Never expose full lore/synopsis if they might contain truth spoilers; use opening location & stage 1 surface brief
+  const openingLoc = skeleton.mainQuest.stages[0]?.locationHint || skeleton.richRegions[0]?.l1_name_cn || "未知";
+  const openingBrief = skeleton.mainQuest.stages[0]?.brief || skeleton.mainQuest.title || skeleton.world.name;
+  const eraGuess = openingLoc !== "未知" ? `${skeleton.world.name} · ${openingLoc}` : skeleton.world.name;
   const occPool = OCCUPATIONS.map(o => o.name).join("/");
-  let prompt = IMPORT_PROMPT.replace("{occ_pool}", occPool);
+  let prompt = (isPlayer ? PLAYER_IMPORT_PROMPT : IMPORT_PROMPT)
+    .replace("{occ_pool}", occPool)
+    .split("{player_name}").join(characterName);
   if (hoOccupation?.trim()) {
     // Fork fix: companions get the same first-person-from-car-card treatment as the player —
     // the "player" block writes in 2nd person for the user; companions use the neutral one.
@@ -89,11 +109,10 @@ export async function importInvestigator(
   if (secret) {
     prompt += PROMPT_SECRET_BLOCK.replace("{secret}", secret.content).replace("{link}", secret.link || "未注明");
   }
-  const userMsg = `模组：${skeleton.world.name}（${eraGuess}）
-主线：${skeleton.mainQuest.title} — ${skeleton.mainQuest.synopsis}
-开场地点：${skeleton.mainQuest.stages[0]?.locationHint || skeleton.richRegions[0]?.l1_name_cn || "未知"}
-角色卡：${characterName}
-性格设定：${characterPersonality}`;
+  const userMsg = `模组名称：${skeleton.world.name}
+开场地点：${openingLoc}
+开场起因：${openingBrief}
+${isPlayer ? `玩家本人（PC）姓名：${characterName}（注意：玩家自己就是${characterName}，严禁把${characterName}和玩家拆成两个人，严禁在输出中写{{user}}！）\n玩家自身人设参考：${characterPersonality}` : `同行角色（KPC）姓名：${characterName}\n角色性格设定：${characterPersonality}`}`;
 
   const result = await simpleLLMCall(apiConfig, [
     { role: "system", content: prompt },
@@ -122,16 +141,25 @@ export async function importInvestigator(
   const hoOcc = hoOccupation?.trim();
   const lockedOccupation = hoOcc || fields["时代职业"] || fields["技能模板"] || "调查员";
   const lockedRef = OCCUPATIONS.find(o => lockedOccupation.includes(o.name))?.name || fields["技能模板"] || "调查员";
+  // Sanitize any accidental {{user}} macro in player card so player is never split into two people
+  const cleanPlayerText = (s: string) => isPlayer
+    ? s
+      .replace(/你与\{\{user\}\}以及/g, "你与")
+      .replace(/你和\{\{user\}\}以及/g, "你和")
+      .replace(/\{\{user\}\}以及/g, "")
+      .replace(/面对\{\{user\}\}时[，,]?\s*/g, "")
+      .replace(/\{\{user\}\}/g, "你")
+    : s;
   return {
     name: characterName,
     era: eraGuess,
     occupation: lockedOccupation,
     refOccupation: lockedRef,
-    background: fields["身份背景"] || "",
-    keepTraits: fields["性格保持"] || characterPersonality.slice(0, 200),
+    background: cleanPlayerText(fields["身份背景"] || ""),
+    keepTraits: cleanPlayerText(fields["性格保持"] || characterPersonality.slice(0, 200)),
     // Fork: suppress the LLM's era-adaptation note when the job is locked — it would contradict
-    changes: hoOcc ? "" : (fields["时代调整"] || ""),
-    hooks: fields["背景钩子"] || "",
+    changes: hoOcc ? "" : cleanPlayerText(fields["时代调整"] || ""),
+    hooks: cleanPlayerText(fields["背景钩子"] || ""),
     cardReaction: fields["拿卡反应"] || "",
   };
 }

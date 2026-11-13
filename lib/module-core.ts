@@ -408,8 +408,12 @@ export function assembleSkeletonFromCore(core: ModuleCore, worldName: string): W
     endgame: "",
   };
 
+  // Surface-only lore for UI & investigator import — NEVER put raw truthText or hiddenTruth here!
+  const surfaceLore = acts[0]?.summary?.slice(0, 160)
+    || (locs.length ? `发生于「${locs.slice(0, 3).map(l => l.name).join("、")}」等地的调查事件` : worldName);
+
   return {
-    world: { name: worldName, lore: (core.rawImported?.truthText || "").slice(0, 300) || dossier.hiddenTruth, rulesEdition: "coc6" },
+    world: { name: worldName, lore: surfaceLore, rulesEdition: "coc6" },
     mapInput: {
       map_settings: { header: "", title: worldName },
       regions: regions.map(r => ({

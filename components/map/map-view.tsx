@@ -351,7 +351,17 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       const apiConfig = (dmSlot?.apiConfigId ? apiConfigs.find(c => c.id === dmSlot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
       if (!apiConfig?.apiKey) return;
       const myName = userIdentity?.name || "调查员";
-      const introSource = `${skeleton.world.name}：${skeleton.world.lore.slice(0, 260)}`;
+      const companionNamesList = saveRef.current.agents.map(a => characters.find(c => c.id === a.characterId)?.name).filter(Boolean).join("、");
+      const myProfileParts = [
+        `玩家角色（PC）姓名：${myName}（玩家本人扮演的主角就是${myName}，没有第三个叫{{user}}的人！）`,
+        userIdentity?.occupation ? `原职业：${userIdentity.occupation}` : "",
+        userIdentity?.gender && userIdentity.gender !== "保密" ? `性别：${userIdentity.gender}` : "",
+        userIdentity?.age && userIdentity.age !== "未知" ? `年龄：${userIdentity.age}` : "",
+        userIdentity?.bio ? `个人简介：${userIdentity.bio}` : "",
+        userIdentity?.customSettings ? `性格与设定：${userIdentity.customSettings}` : "",
+        userIdentity?.closeSettings ? `深层设定：${userIdentity.closeSettings}` : "",
+        companionNamesList ? `本局同行角色（KPC）：${companionNamesList}` : "",
+      ].filter(Boolean).join("\n");
       // Fork: table-feel — the KP opens the module and hands out identity cards one by one
       pushMessages({ id: mkId(), type: "narration", text: `🎲 KP 翻开《${skeleton.world.name}》的模组，把几张空白身份卡摆在桌上——"稍等，各位的调查员身份还在拟写。"` });
       // Fork: HO 密档改为分配面板——玩家先选，剩余由 KP 按人设贴合度分配（见 hoAssignOpen effect）
@@ -364,13 +374,13 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         const myLineObj = save.boundLineHo?.["__player__"]
           ? save.investigatorLines?.find(l => l.ho === save.boundLineHo["__player__"])
           : undefined;
-        const myHoOcc = myLineObj?.occupation;
+        const myHoOcc = myLineObj?.occupation || userIdentity?.occupation || undefined;
         const myHoFull = myLineObj ? [
           `HO代号：${myLineObj.ho}${myLineObj.occupation ? ` · 职业：${myLineObj.occupation}` : ""}`,
           myLineObj.introStory ? `导入剧情：${myLineObj.introStory}` : "",
           myLineObj.relations.length ? `私人关系：${myLineObj.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : "",
         ].filter(Boolean).join("\n") : undefined;
-        const persona = await importInvestigator(myName, `（用户本人）${introSource}`, skeleton, save.mySecret, apiConfig, myHoOcc, myHoFull, true);
+        const persona = await importInvestigator(myName, myProfileParts, skeleton, save.mySecret, apiConfig, myHoOcc, myHoFull, true);
         if (!cancelled && persona) {
           persistSave({ ...saveRef.current, myPersona: { ...persona, confirmed: false } });
           pushMessages({ id: mkId(), type: "system", text: "📇 KP 将一张身份卡推到你面前——请过目（弹窗已打开，可修改后确认）" });
@@ -404,7 +414,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
               ...saveRef.current,
               agents: saveRef.current.agents.map(x => x.characterId === a.characterId ? { ...x, persona: fixedPersona } : x),
             });
-            pushMessages({ id: mkId(), type: "system", text: `📇 KP 把身份卡递给 ${name}——${fixedPersona.era} · ${fixedPersona.occupation}` });
+            pushMessages({ id: mkId(), type: "system", text: `📇 KP 把身份卡递给 ${name}——${fixedPersona.occupation}` });
             // Fork: the companion reacts in their own voice — always use their real character card name & avatar
             pushMessages({
               id: mkId(),

@@ -598,7 +598,14 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
               {w.status === "failed" && w.statusMessage && (
                 <div style={{ fontSize: "calc(10px*var(--app-text-scale,1))", color: "rgba(255,100,80,0.5)", marginBottom: 6, lineHeight: 1.4 }}>{w.statusMessage.slice(0, 100)}</div>
               )}
-              {!w.status && <div style={{ fontSize: "calc(11px*var(--app-text-scale,1))", color: "rgba(255,255,255,0.35)", marginBottom: 10 }}>{w.skeleton.world.lore.slice(0, 60)}...</div>}
+              {!w.status && (
+                <div style={{ fontSize: "calc(11px*var(--app-text-scale,1))", color: "rgba(255,255,255,0.35)", marginBottom: 10 }}>
+                  {(w.skeleton.mainQuest?.stages?.[0]?.locationHint
+                    ? `起点：${w.skeleton.mainQuest.stages[0].locationHint}${w.skeleton.mainQuest.stages[0].brief ? ` · ${w.skeleton.mainQuest.stages[0].brief}` : ""}`
+                    : w.skeleton.richRegions?.map(r => r.l1_name_cn).filter(Boolean).join(" · ") || w.skeleton.world.name
+                  ).slice(0, 60)}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 {!w.status && (
                   <button onClick={() => handleEnterWorld(w)} style={{ flex: 1, padding: "8px 0", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#e0dcd5", fontSize: "calc(12px*var(--app-text-scale,1))", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontFamily: "inherit" }}>
