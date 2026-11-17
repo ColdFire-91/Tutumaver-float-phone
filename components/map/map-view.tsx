@@ -1355,6 +1355,8 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             agents: save.agents.map(a => ({ ...a, currentNodeId: act1Id, currentNodeType: act1Node?.type || a.currentNodeType, discoveredNodes: [...new Set([...a.discoveredNodes, act1Id])], visitedNodes: [...new Set([...a.visitedNodes, act1Id])] })),
           };
           pushMessages({ id: mkId(), type: "system", text: `🎭 导入剧情落幕——诸位调查员各自的故事线在此交汇。第一幕「${skeleton.acts?.[0]?.title || "调查"}」正式开始，地点：${act1Node?.name || "?"}。` });
+          // Fork: trigger the first scene of act 1 immediately upon convergence
+          setTriggerEvent({ type: "move", nodeId: act1Id });
         }
       }
       if (ev.worldEvents?.length) setWorldEvents(ev.worldEvents);
