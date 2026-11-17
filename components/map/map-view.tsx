@@ -433,6 +433,21 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         delete finalSave.personaPending;
         persistSave(finalSave);
         pushMessages({ id: mkId(), type: "narration", text: "🎭 身份卡分发完毕。KP 清了清嗓子——\"诸位，故事开始了。\"" });
+        // Fork: auto-trigger the opening scene (player's HO intro if introPhase, or Act 1 opening)
+        const myHo = finalSave.boundLineHo?.["__player__"];
+        const myLine = finalSave.investigatorLines?.find(l => l.ho === myHo);
+        if (finalSave.introPhase && myLine) {
+          setTimeout(() => {
+            triggerEvent("main_quest", `【导入剧情·${myLine.ho}开场】${myLine.introStory || "调查员各自的开场故事展开"}`);
+          }, 200);
+        } else {
+          const stage0 = skeleton.mainQuest.stages[0];
+          const act0 = skeleton.acts?.[0];
+          const brief = stage0?.brief || act0?.summary || skeleton.mainQuest.synopsis || "调查正式开始";
+          setTimeout(() => {
+            triggerEvent("main_quest", `${act0?.title || skeleton.mainQuest.title || "开场"}：${brief}`);
+          }, 200);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -806,32 +821,47 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     setEventLoading(true);
     setActiveEventMeta({ type: eventType, questId: meta?.questId });
     try {
+      const curSave = saveRef.current;
+      const curNode = nodeMap.get(curSave.currentNodeId) || currentNode;
+      const isWithPlayerNow = (agent: GameSave["agents"][number] | undefined): boolean => {
+        if (!agent) return false;
+        if (agent.currentNodeId !== curSave.currentNodeId) return false;
+        if (curSave.introPhase && curSave.investigatorLines?.length) {
+          const pHo = curSave.boundLineHo?.["__player__"];
+          const aHo = curSave.boundLineHo?.[agent.characterId];
+          const pPlace = curSave.investigatorLines.find(l => l.ho === pHo)?.introPlace?.trim();
+          const aPlace = curSave.investigatorLines.find(l => l.ho === aHo)?.introPlace?.trim();
+          if (pPlace && aPlace && pPlace !== aPlace) return false;
+        }
+        return true;
+      };
+
       const apiConfigs = loadApiConfigs();
       const bindings = loadBindingConfig();
       // DM API: multi-agent → global binding; single-agent → that agent's adventure binding
-      const dmSlot = save.agents.length === 1
-        ? resolveBinding(bindings, save.agents[0].characterId, "adventure")
+      const dmSlot = curSave.agents.length === 1
+        ? resolveBinding(bindings, curSave.agents[0].characterId, "adventure")
         : resolveBinding(bindings, undefined, "adventure");
       const apiConfig = (dmSlot?.apiConfigId ? apiConfigs.find(c => c.id === dmSlot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
       if (!apiConfig?.apiKey) throw new Error("未找到有效的API配置，请先在设置中配置API");
       // CoC6 SAN backfill for pre-migration saves
-      const playerSan = typeof save.san === "number" ? save.san : (save.playerStats?.san ?? 99);
+      const playerSan = typeof curSave.san === "number" ? curSave.san : (curSave.playerStats?.san ?? 99);
 
-      const companionIds = save.agents
-        .filter(a => isAgentWithPlayer(a))
+      const companionIds = curSave.agents
+        .filter(a => isWithPlayerNow(a))
         .map(a => a.characterId);
       const companionNames = companionIds.map(id => charName(id));
 
       const stagesWithResults = skeleton.mainQuest.stages.map((s, i) => ({
         brief: s.brief,
-        result: save.director.mainArc.stageResults.find(r => r.stage === i)?.outcome,
+        result: curSave.director.mainArc.stageResults.find(r => r.stage === i)?.outcome,
       }));
 
       const npcSecret = meta?.npcName
         ? skeleton.dmDossier?.npcSecrets[skeleton.npcs.find(n => n.name === meta.npcName)?.id || ""] || undefined
         : undefined;
 
-      const allCompleted = save.agents.flatMap(a => a.completedSideQuests);
+      const allCompleted = curSave.agents.flatMap(a => a.completedSideQuests);
       const sqStatus: Record<string, string> = {};
       for (const sq of skeleton.sideQuests) {
         sqStatus[sq.id] = allCompleted.includes(sq.id) ? "已完成" : "未触发";
@@ -841,7 +871,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
       const dmCtx = {
         worldLore: skeleton.world.lore,
-        currentLocation: currentNode?.name || "",
+        currentLocation: curNode?.name || "",
         eventType,
         eventBrief: brief,
         npcName: meta?.npcName,
@@ -849,11 +879,11 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         npcSecret,
         companionNames,
         playerName: userIdentity?.name || "玩家",
-        recentJournal: save.journal.map(j => j.text),
-        keyChoices: save.keyChoices,
-        gameTime: formatGameTime(save.gameDay, save.gameTime),
+        recentJournal: curSave.journal.map(j => j.text),
+        keyChoices: curSave.keyChoices,
+        gameTime: formatGameTime(curSave.gameDay, curSave.gameTime),
         dmDossier: skeleton.dmDossier,
-        director: save.director,
+        director: curSave.director,
         mainQuestSynopsis: skeleton.mainQuest.synopsis,
         mainQuestStages: stagesWithResults,
         richRegions: skeleton.richRegions,
@@ -862,16 +892,16 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         kpStyle: (skeleton.world.lore.match(/【KP风格指令】([\s\S]*)/)?.[1] || "").trim() || undefined,
         rulesEdition: skeleton.world.rulesEdition || "coc6",
         partySecrets: [
-          ...(save.mySecret ? [{ who: userIdentity?.name || "你", secret: save.mySecret }] : []),
-          ...Object.entries(save.agentSecrets || {}).map(([cid, s]) => ({ who: charName(cid), secret: s })),
+          ...(curSave.mySecret ? [{ who: userIdentity?.name || "你", secret: curSave.mySecret }] : []),
+          ...Object.entries(curSave.agentSecrets || {}).map(([cid, s]) => ({ who: charName(cid), secret: s })),
         ],
         // Fork: HO 密档——导入剧情与个人线（KP 可见全部；含绑定角色名映射与事件触发表）
         // Fork fix (data self-heal): pre-writeback saves have boundLineHo set but every
         // line's boundCharacterId empty → rebuild from the map so old saves heal instantly.
         // Fork 导入阶段: introPhase injected so the KP knows whether to play solo intros.
-        ...(save.investigatorLines?.length ? (() => {
-          const hoLines = save.investigatorLines!.map(l => l.boundCharacterId ? l : (() => {
-            const cid = Object.entries(save.boundLineHo || {}).find(([, ho]) => ho === l.ho)?.[0];
+        ...(curSave.investigatorLines?.length ? (() => {
+          const hoLines = curSave.investigatorLines!.map(l => l.boundCharacterId ? l : (() => {
+            const cid = Object.entries(curSave.boundLineHo || {}).find(([, ho]) => ho === l.ho)?.[0];
             return cid ? { ...l, boundCharacterId: cid } : l;
           })());
           return {
@@ -887,33 +917,33 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
               ...(l.events.length ? [`个人线事件（按触发条件演出，只有${holder || l.ho}在场时才发生；触发时走私聊幕，不当众展开）：${l.events.map(e => `[${e.trigger}] ${e.summary}`).join(" ⟂ ")}`] : []),
             ].join("\n");
           }).join("\n\n"),
-          introPhase: save.introPhase ?? false,
+          introPhase: curSave.introPhase ?? false,
           };
         })() : {}),
         acts: skeleton.acts,
-        currentAct: save.currentAct ?? 0,
+        currentAct: curSave.currentAct ?? 0,
         // Fork: 密档划账——已公开条目注入（KP 按标注守账）
-        revealedDossier: save.revealedDossier || [],
+        revealedDossier: curSave.revealedDossier || [],
         assetManifest: buildAssetManifest(assets),
-        playerPersona: save.myPersona ? `${save.myPersona.occupation}——${save.myPersona.background}${save.myPersona.hooks ? `（私下在意：${save.myPersona.hooks}）` : ""}` : undefined,
+        playerPersona: curSave.myPersona ? `${curSave.myPersona.occupation}——${curSave.myPersona.background}${curSave.myPersona.hooks ? `（私下在意：${curSave.myPersona.hooks}）` : ""}` : undefined,
         discoveredRegionIds: [...discoveredRegions].map(idx => skeleton.mapInput.regions[idx]?.id).filter(Boolean) as string[],
         partyStatus: {
-          hp: save.hp,
-          maxHp: save.maxHp,
+          hp: curSave.hp,
+          maxHp: curSave.maxHp,
           san: playerSan,
-          items: [...(save.playerSheet?.equipment || []), ...save.director.keyItems],
-          playerStats: save.playerStats,
-          playerSheet: save.playerSheet,
-          combat: save.combat && !save.combat.ended ? { round: save.combat.round, initiative: save.combat.initiative, currentIndex: save.combat.currentIndex, hostiles: save.combat.hostiles } : undefined,
-          madness: save.madness,
-          companions: save.agents
-            .filter(a => a.currentNodeId === save.currentNodeId)
+          items: [...(curSave.playerSheet?.equipment || []), ...curSave.director.keyItems],
+          playerStats: curSave.playerStats,
+          playerSheet: curSave.playerSheet,
+          combat: curSave.combat && !curSave.combat.ended ? { round: curSave.combat.round, initiative: curSave.combat.initiative, currentIndex: curSave.combat.currentIndex, hostiles: curSave.combat.hostiles } : undefined,
+          madness: curSave.madness,
+          companions: curSave.agents
+            .filter(a => isWithPlayerNow(a))
             .map(a => {
               const ch = characters.find(c => c.id === a.characterId);
               return { name: ch?.name || a.characterId, affinity: a.affinity, stats: a.stats, status: a.sheet ? a.sheet.occupation : "", sheet: a.sheet, personality: buildCompanionPersonaAndWorldBookSummary(a.characterId) };
             }),
         },
-        pacing: save.pacing,
+        pacing: curSave.pacing,
       };
 
       const recentOocForScene = streamRef.current.filter(m => m.type === "ooc").slice(-8);
@@ -922,34 +952,60 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       }
       const scene = await expandEvent(dmCtx, companionIds, apiConfig);
       failedSkillsRef.current.clear(); // new scene — reset the failed-check guard
-      const dmScene = scene as EventScene & { dmSituation?: string; worldEvents?: string[]; revealed?: string[] };
+      const dmScene = scene as EventScene & { dmSituation?: string; worldEvents?: string[]; revealed?: string[]; sideScenes?: { who: string; npc: string; intent?: string; summary?: string }[]; introDone?: boolean };
       if (dmScene.worldEvents?.length) setWorldEvents(dmScene.worldEvents);
+
+      let updatedSave = { ...saveRef.current };
       // Fork: 密档划账——本轮公开的密档条目记入总账（去重）
       if (dmScene.revealed?.length) {
-        const merged = [...new Set([...(save.revealedDossier || []), ...dmScene.revealed.map(r => r.trim())].filter(Boolean))];
-        persistSave({ ...save, revealedDossier: merged });
+        const merged = [...new Set([...(updatedSave.revealedDossier || []), ...dmScene.revealed.map(r => r.trim())].filter(Boolean))];
+        updatedSave = { ...updatedSave, revealedDossier: merged };
+        dmCtx.revealedDossier = merged;
       }
 
       const sceneJournal = scene.journalEntry?.trim();
       const sceneClues = (scene.clues || []).filter(Boolean);
       if (sceneJournal || sceneClues.length) {
-        const locName = currentNode?.name || "未知地点";
-        const dayLabel = formatGameTime(save.gameDay, save.gameTime);
-        persistSave({
-          ...save,
-          journal: sceneJournal ? [...save.journal, {
+        const locName = curNode?.name || "未知地点";
+        const dayLabel = formatGameTime(updatedSave.gameDay, updatedSave.gameTime);
+        updatedSave = {
+          ...updatedSave,
+          journal: sceneJournal ? [...updatedSave.journal, {
             id: `j_${Date.now()}`,
-            timestamp: formatGameTime(save.gameDay, save.gameTime),
+            timestamp: dayLabel,
             realTime: new Date().toISOString(),
-            locationName: currentNode?.name || "",
+            locationName: curNode?.name || "",
             text: sceneJournal,
             type: eventType === "main_quest" ? "main" : "side",
-          }] : save.journal,
-          clues: [...(save.clues || []), ...sceneClues.map((c, i) => ({ id: `clue_${Date.now()}_${i}`, location: locName, text: c, day: dayLabel }))],
+          }] : updatedSave.journal,
+          clues: [...(updatedSave.clues || []), ...sceneClues.map((c, i) => ({ id: `clue_${Date.now()}_${i}`, location: locName, text: c, day: dayLabel }))],
           timestamp: new Date().toISOString(),
-        });
+        };
         if (sceneClues.length) pushMessages({ id: mkId(), type: "system", text: `🗂 线索归档：${sceneClues.join("；")}` });
       }
+
+      // Fork 八期B / 导入阶段: process sideScenes from expandEvent (e.g. companion intro vignettes)
+      if (dmScene.sideScenes?.length) {
+        const me = userIdentity?.name || "你";
+        const dayLabel = formatGameTime(updatedSave.gameDay, updatedSave.gameTime);
+        const newLocks: NonNullable<GameSave["lockedLog"]> = [];
+        for (const sc of (updatedSave.introPhase ? dmScene.sideScenes : dmScene.sideScenes.slice(0, 1))) {
+          const entry = { id: `lock_${Date.now()}_${newLocks.length}`, who: sc.who, npc: sc.npc, text: sc.summary || sc.intent || "（一场无人知晓的交谈）", day: dayLabel };
+          if (sc.who === me) {
+            pushMessages({ id: mkId(), type: "narration", text: `🔒〔私聊·只有你和${sc.npc}在场〕${entry.text}`, audience: ["locked"] });
+          } else if (updatedSave.introPhase) {
+            pushMessages({ id: mkId(), type: "system", text: `🔒 别处——${sc.who} 的故事正在展开（导入剧情·对调查员保密，结局揭晓时公开）` });
+          }
+          lockedLogRef.current = [...lockedLogRef.current, entry];
+          newLocks.push(entry);
+        }
+        if (newLocks.length) {
+          updatedSave = { ...updatedSave, lockedLog: [...(updatedSave.lockedLog || []), ...newLocks] };
+        }
+      }
+
+      persistSave(updatedSave);
+
       if (scene.investigationDone) {
         pushMessages({ id: mkId(), type: "system", text: "🔎 本地点的调查已告一段落，继续停留难有新发现——考虑转移地点" });
       }
@@ -971,22 +1027,22 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         setLoadingPhase("companions");
         try {
           for (const cid of companionIds) {
-            const declAgent = save.agents.find(a => a.characterId === cid);
+            const declAgent = curSave.agents.find(a => a.characterId === cid);
             const ch = characters.find(c => c.id === cid);
             if (!ch) continue;
-            const myHoCode = save.boundLineHo?.[cid];
-            const myLine = save.investigatorLines?.find(l => l.ho === myHoCode);
+            const myHoCode = curSave.boundLineHo?.[cid];
+            const myLine = curSave.investigatorLines?.find(l => l.ho === myHoCode);
             const lineHint = myLine ? `【你的模组内处境与秘密（${myLine.ho}）】（这是只有你自己经历或知晓的事，你和{{user}}掌握的信息不同；面对秘密或隐情时，完全按你自己的性格与判断决定是否透露、何时透露）\n当前处境：${myLine.introStory || "（无）"}${myLine.relations.length ? `\n相关人物：${myLine.relations.map(r => `${r.npc}（${r.relation}）`).join("；")}` : ""}` : undefined;
             const personaHint = declAgent?.persona ? `【你的模组内身份】${declAgent.persona.occupation}——${declAgent.persona.background}\n核心性格：${declAgent.persona.keepTraits}` : undefined;
             const recentOoc = streamRef.current.filter(m => m.type === "ooc").slice(-8);
             const oocHint = recentOoc.length ? `【场外沟通备忘（仅作演绎方向参考，严禁在台词中提及场外词汇）】\n${recentOoc.map(m => m.speaker === "__user__" ? `{{user}}：${m.text}` : `${m.speaker}：${m.text}`).join("\n")}` : undefined;
-            const react = await companionDeclare(cid, apiConfig, sceneWallFilter(cid).slice(-12), save.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
-              instruction: `你和{{user}}此刻正身处同一场景（「${currentNode?.name || "当前房间"}」）中。请完全置身于当前剧情里，以你本人的性格作出自然的反应与交流（1-2句台词即可，克制自然，不要用力过猛）：
+            const react = await companionDeclare(cid, apiConfig, sceneWallFilter(cid).slice(-12), curSave.agents.length > 1 ? userIdentity : undefined, declAgent?.affinity, {
+              instruction: `你和{{user}}此刻正身处同一场景（「${curNode?.name || "当前房间"}」）中。请完全置身于当前剧情里，以你本人的性格作出自然的反应与交流（1-2句台词即可，克制自然，不要用力过猛）：
 - 【严禁Meta/严禁出戏】你正在亲身经历这一切，绝对禁止出现“刚开局”“这剧本”“跑团”“游戏”“玩家”等打破第四面墙的场外词汇！
 - 【严守信息与空间边界】你只知道你在这个房间里亲眼看见、亲耳听见的事，以及你自己的记忆与秘密。{{user}}没告诉你的事、或{{user}}之前在其他房间做的事，你绝对不可能知道！
 - 【原创表达·严禁套模板】完全根据你自己独一无二的性格、习惯用词与行为方式自由发挥，禁止使用任何套路化网文句式（如“眼底掠过一丝……”“稍纵即逝”等），对{{user}}的情感与分寸自然融在只属于你个人的言行细节里！`,
               personaHint: [personaHint, lineHint, oocHint].filter(Boolean).join("\n\n") || undefined,
-              ...(save.agentSecrets?.[cid] ? { secretHint: `【你心底的秘密】${save.agentSecrets[cid].content}——你和{{user}}掌握的信息不同，根据你自己的判断决定是否说出、何时说出。` } : {}),
+              ...(curSave.agentSecrets?.[cid] ? { secretHint: `【你心底的秘密】${curSave.agentSecrets[cid].content}——你和{{user}}掌握的信息不同，根据你自己的判断决定是否说出、何时说出。` } : {}),
             });
             if (!react.failed && ((react.speech && react.speech !== "……") || (react.action && react.action !== "跟随队伍" && react.action !== "沉默不动"))) {
               const card: StreamMessage = {
@@ -1281,6 +1337,25 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             ...(save.mySecret ? [{ who: userIdentity?.name || "你", secret: save.mySecret }] : []),
             ...Object.entries(save.agentSecrets || {}).map(([cid, s]) => ({ who: charName(cid), secret: s })),
           ],
+          ...(save.investigatorLines?.length ? (() => {
+            const hoLines = save.investigatorLines!.map(l => l.boundCharacterId ? l : (() => {
+              const cid = Object.entries(save.boundLineHo || {}).find(([, ho]) => ho === l.ho)?.[0];
+              return cid ? { ...l, boundCharacterId: cid } : l;
+            })());
+            return {
+              investigatorLinesHint: hoLines.map(l => {
+                const holder = l.boundCharacterId === "__player__" ? (userIdentity?.name || "你") : charName(l.boundCharacterId || "");
+                const bind = holder ? `（${holder}）` : "（未绑定）";
+                const isPlayerLine = l.boundCharacterId === "__player__";
+                return [
+                  `${l.ho}${bind}${isPlayerLine ? "【这是{{user}}本人的线——开场第一幕必须以这条线的导入剧情为起点】" : ""} 导入剧情：${l.introStory}`,
+                  ...(l.relations.length ? [`私人关系：${l.relations.map(r => `${r.npc}=${r.relation}`).join("；")}`] : []),
+                  ...(l.events.length ? [`个人线事件（按触发条件演出，只有${holder || l.ho}在场时才发生；触发时走私聊幕，不当众展开）：${l.events.map(e => `[${e.trigger}] ${e.summary}`).join(" ⟂ ")}`] : []),
+                ].join("\n");
+              }).join("\n\n"),
+              introPhase: save.introPhase ?? false,
+            };
+          })() : {}),
           acts: skeleton.acts,
           currentAct: save.currentAct ?? 0,
           revealedDossier: save.revealedDossier || [],
@@ -1340,6 +1415,9 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       // Fork 导入阶段: intro close-detection — when the player declares intent to converge
       // (动身/汇合/前往X) during their own intro, the intro ends: introPhase off, companions
       // converge to the act-1 stage location, and the module proper begins.
+      let shouldTriggerAct1 = false;
+      let act1TitleForTrigger = "";
+      let act1NodeNameForTrigger = "";
       if (save.introPhase) {
         const convergeIntent = /汇合|会合|动身|出发|前往|赶去|去找(他们|大家|同伴)|第一幕|开始冒险/.test(actionText);
         if (convergeIntent || (ev as EventScene & { introDone?: boolean }).introDone) {
@@ -1354,9 +1432,10 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
             visitedNodes: [...new Set([...save.visitedNodes, act1Id])],
             agents: save.agents.map(a => ({ ...a, currentNodeId: act1Id, currentNodeType: act1Node?.type || a.currentNodeType, discoveredNodes: [...new Set([...a.discoveredNodes, act1Id])], visitedNodes: [...new Set([...a.visitedNodes, act1Id])] })),
           };
-          pushMessages({ id: mkId(), type: "system", text: `🎭 导入剧情落幕——诸位调查员各自的故事线在此交汇。第一幕「${skeleton.acts?.[0]?.title || "调查"}」正式开始，地点：${act1Node?.name || "?"}。` });
-          // Fork: trigger the first scene of act 1 immediately upon convergence
-          setTriggerEvent({ type: "move", nodeId: act1Id });
+          act1TitleForTrigger = skeleton.acts?.[0]?.title || skeleton.mainQuest.title || "调查";
+          act1NodeNameForTrigger = act1Node?.name || currentNode?.name || "";
+          pushMessages({ id: mkId(), type: "system", text: `🎭 导入剧情落幕——诸位调查员各自的故事线在此交汇。第一幕「${act1TitleForTrigger}」正式开始，地点：${act1NodeNameForTrigger || "?"}。` });
+          shouldTriggerAct1 = true;
         }
       }
       if (ev.worldEvents?.length) setWorldEvents(ev.worldEvents);
@@ -1770,7 +1849,13 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
         setEventContext(JSON.stringify(dmCtx));
 
         const isDone = Boolean((continuation as EventScene & { investigationDone?: boolean }).investigationDone);
-        if (!isDone) {
+        if (shouldTriggerAct1) {
+          setLastFailedAction(null); setCompletedCompanions([]);
+          const stage0Brief = skeleton.mainQuest.stages[0]?.brief || skeleton.acts?.[0]?.summary || "调查员们在第一幕起点汇合";
+          setTimeout(() => {
+            triggerEvent("main_quest", `第一幕「${act1TitleForTrigger}」（地点：${act1NodeNameForTrigger}）：${stage0Brief}`);
+          }, 150);
+        } else if (!isDone) {
           // Stay in the active scene so player & companions always declare BEFORE KP narrates!
           setInEvent(true);
           setCurrentChoices(continuation.choices && continuation.choices.length > 0 ? continuation.choices : []);
